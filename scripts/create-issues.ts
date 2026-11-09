@@ -1,5 +1,5 @@
 /** Creates one GitHub issue per requirement in docs/roadmap.ts, skipping any whose title already exists.
- *  Needs `gh` signed in. Run: npx tsx scripts/create-issues.ts [owner/repo] */
+ *  Needs `gh` signed in. Run: pnpm tickets [owner/repo] */
 import { execFileSync } from "node:child_process";
 
 import { OUTCOMES } from "../docs/roadmap";

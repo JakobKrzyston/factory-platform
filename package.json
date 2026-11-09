@@ -10,10 +10,14 @@
   },
   "scripts": {
     "plan": "tsx scripts/render-plan.ts",
-    "issues": "tsx scripts/create-issues.ts"
+    "tickets": "tsx scripts/create-issues.ts"
   },
   "devDependencies": {
     "tsx": "^4.23.15",
     "typescript": "^5.9.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/JakobKrzyston/factory-platform"
   }
 }
