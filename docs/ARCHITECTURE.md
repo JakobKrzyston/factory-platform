@@ -1,0 +1,78 @@
+# Architecture
+
+This document is written ahead of the code. Each section names the decision, the reason, and the stage that will test it. When a stage changes a decision, update the section in the same pull request and say why in the stage note.
+
+## The shape
+
+```
+            label added                    PR opened                     merged
+GitHub issue ──────────▶ platform/queue ──▶ factories/<name> agents ──▶ GitHub PR ──▶ human merges
+                              │                   │       ▲                  │
+                              │                   ▼       │ gates            │
+                              │             platform/gates (hooks)           │
+                              │                   │                          │
+                              └───────────────────┴──▶ platform/runlog ◀─────┘
+                                                            │
+                                                            ▼
+                                                  benchmark + scorers ──▶ meta-factory ──▶ PR to factories/
+```
+
+Three layers:
+
+- **Platform** (`platform/`): the queue, the run log, the gate runner, the replay harness and the dashboard. Written once, shared by every factory, tested on its own.
+- **Factories** (`factories/<name>/`): definitions only. Agents, triggers, scorers and skills as files. No code that could run without the platform.
+- **Evidence** (`benchmark/`, `standards/`, `docs/notes/`): what the factory is measured against, the rules it has learned, and the record of each stage.
+
+## Decisions
+
+### The queue is GitHub issue labels (TL-6)
+
+A factory needs a place where work waits and where its state lives. GitHub labels give both for free, are visible in the issue timeline, and need no service to run. The states are `factory:ready`, `factory:in-progress`, `factory:in-review`, `factory:needs-human` and `factory:done`. `needs-human` is a state, not a failure: an unattended agent that hits a question stops there with a comment.
+
+Tested by: TL-6. Revisit if two factories need to share work or ordering matters, when a table in the run log database can take over.
+
+### Gates are Claude Code hooks (TL-5)
+
+A stop hook runs typecheck, lint and tests and refuses to let the agent end its turn while any fail. Hooks run outside the model, so they cannot be talked out of. The hook output names the failing check so the agent can act on it.
+
+Tested by: TL-5. The same gates run in CI, so a PR cannot pass locally and fail on merge.
+
+### One agent per role, one file per agent (TL-7)
+
+`factories/<name>/agents/<role>/agent.md` holds the prompt, model, allowed tools and skills for one role. The reviewer runs from a clean checkout with only the diff and the spec. Triage runs on a cheaper model. Model choice is a one-line change, so the benchmark can compare models per role.
+
+Tested by: TL-7, then the benchmark in TL-15.
+
+### The run log is a table, not a log file (TL-11)
+
+One row per run, written at start and end. SQLite in `.runlog/` locally, Neon Postgres in the cloud, same schema. Columns: `factory`, `role`, `issue`, `model`, `input_tokens`, `output_tokens`, `cost_usd`, `wall_seconds`, `checks_passed`, `review_findings`, `rework` (set when a human changed the PR between hand-off and merge), `benchmark` (true for replay runs, so they stay out of production metrics).
+
+Tested by: TL-11, TL-12. The dashboard (TL-13) only reads this table.
+
+### Benchmark from the repository's own history (TL-14)
+
+The benchmark is closed issues from this repository with their merged PRs and a written expected outcome. It grows as the project does. A factory change is judged by replaying the benchmark on the old and new definition, scored by the files under `scorers/`.
+
+Tested by: TL-14 to TL-16, then every meta-PR (TL-23).
+
+### Factories are directories (TL-17)
+
+Following Warp's layout: a resource's name is its path, exactly one agent per factory is the foreman, skills at the factory root apply to every agent and skills under an agent apply to that agent only. Creating a factory is copying a directory; splitting one is moving agent folders. A validator (TL-20) runs in CI.
+
+Tested by: TL-17 moves the first factory into this layout with the benchmark proving no behaviour changed; TL-19 makes a second factory by copying.
+
+### The meta-factory edits only definitions (TL-22)
+
+The meta-agent reads the run log, picks the worst metric and opens a PR against `factories/`. Branch rules and the validator stop it touching `platform/`. The benchmark gate (TL-23) must pass before a human sees the PR.
+
+Tested by: TL-22, TL-23.
+
+### Throughline keeps the roadmap (TL-1 to TL-3)
+
+`docs/roadmap.ts` is the source of truth. It renders `docs/PLAN.md`, seeds the Throughline `factory` project, and creates the tickets. PRs say `Implements TL-n`; Throughline reconciles them on merge. A Throughline MCP server (TL-3) will let agents read their requirement and propose the link themselves.
+
+## Non-goals
+
+- Not a general agent framework. It runs Claude Code and, later, whatever harness a factory file names.
+- Not a tracker. Linear or GitHub issues hold tickets; Throughline holds the roadmap; this repository holds the factory.
+- No user accounts. One owner, protected by GitHub permissions and Vercel authentication on the dashboard.

@@ -1,0 +1,18 @@
+{
+  "name": "factory-platform",
+  "version": "0.0.0",
+  "private": true,
+  "description": "A software factory built in the open, one measured stage at a time.",
+  "license": "MIT",
+  "packageManager": "pnpm@12.16.1",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "plan": "tsx scripts/render-plan.ts"
+  },
+  "devDependencies": {
+    "tsx": "^4.23.15",
+    "typescript": "^5.9.0"
+  }
+}
