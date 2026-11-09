@@ -9,7 +9,8 @@
     "node": ">=22"
   },
   "scripts": {
-    "plan": "tsx scripts/render-plan.ts"
+    "plan": "tsx scripts/render-plan.ts",
+    "issues": "tsx scripts/create-issues.ts"
   },
   "devDependencies": {
     "tsx": "^4.23.15",
