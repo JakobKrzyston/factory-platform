@@ -29,7 +29,13 @@ Before merge, without a runner (GitHub runs `issues` workflows only from the def
   - The stub also showed that `env -i` stripped its own environment variables.
 - The comment filter kept the owner's and a collaborator's comments and dropped one from an outsider (`authorAssociation` `NONE`).
 - The workflow's "Run the agent" step, using stubs for the script and `pnpm`: exit 0 sets `in-review`, exit 3 posts the quoted question and sets `needs-human`, and exit 1 posts the failure comment, sets `needs-human` and fails the job.
-- Not yet checked: the workflow on a real runner (bubblewrap under the AppArmor change, the App's commit identity, the REST label calls) and the three acceptance criteria end to end.
+- `pnpm queue` on a throwaway issue against the real API ([factory-sample#9](https://github.com/JakobKrzyston/factory-sample/issues/9), using the owner's `gh` login, not the App):
+  - `claim` refused an issue without `factory:ready`, then took it to `in-progress`, then refused the duplicate.
+  - `set needs-human` posted the comment before the label appeared in the timeline.
+  - Re-adding `factory:ready` alongside `needs-human` was claimed, and the stale label was removed.
+  - `in-review` and `done` each left exactly one `factory:*` label and kept the unrelated `bug` label. A repeated `set done` changed nothing.
+  - The timeline shows all 15 label and comment events.
+- Not yet checked: the workflow on a real runner (bubblewrap under the AppArmor change, the App's commit identity, the App token's permissions for the label calls) and the three acceptance criteria end to end.
 
 ## What the numbers said
 
