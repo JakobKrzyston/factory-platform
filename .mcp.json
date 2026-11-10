@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "throughline": {
+      "type": "http",
+      "url": "${THROUGHLINE_URL}/api/mcp",
+      "headers": {
+        "Authorization": "Bearer ${THROUGHLINE_MCP_TOKEN}",
+        "x-vercel-protection-bypass": "${THROUGHLINE_BYPASS_SECRET}"
+      }
+    }
+  }
+}
