@@ -12,11 +12,14 @@ Classic branch protection could not express the rule. On a personal repository i
 
 The factory's identity was decided here rather than in TL-4 because the gate depends on it. An owner token makes the owner the author, and authors cannot approve their own PRs. Actions' `GITHUB_TOKEN` cannot trigger the check workflow on PRs it opens. A GitHub App avoids both.
 
-<!-- TODO before merge: results of applying the rulesets, this PR's own merge through the gate, and `pnpm check-merge-gate`. -->
+`pnpm merge-gate` created both rulesets on the first run and updated them in place on the second. GitHub accepted the update restriction on a personal repository. Once the rulesets were live, this PR showed `BLOCKED` / `REVIEW_REQUIRED` with its `checks` job green.
+
+<!-- TODO before merge: the `pnpm check-merge-gate` output, and this PR's merge through the owner's pull-request bypass. -->
 
 ## What the numbers said
 
 | Measure | Value |
 | --- | --- |
 | Checks `main` failed before this stage | 2 of 2 (install, typecheck) |
-| Rulesets | 2 |
+| Rulesets | 2 (IDs 26914609, 26914610) |
+| `checks` job on this PR | pass, 15 s |
