@@ -9,14 +9,15 @@ The roadmap lives in Throughline's `factory` project. The `throughline` MCP serv
 
 ## Before you start
 
-Call `get_requirement` with `project: "factory"` and the key, e.g. `TL-3`. Build what its description and acceptance criteria say; the roadmap is the source of truth, and the issue text can be out of date.
+Call `get_requirement` with `project: "factory"` and the key, e.g. `TL-3`. It shows the requirement's acceptance criteria, its status, and the issues and pull requests already linked to it. `docs/roadmap.ts` is the source of truth: if Throughline's copy disagrees with it, build what `roadmap.ts` says and mention the difference in your summary.
 
 ## After the pull request is open
 
-Call `propose_link` with `project: "factory"`, the pull request's URL, the key, and a one- or two-sentence `rationale` a reviewer can check against the diff.
+If the pull request body says `Implements TL-n`, Throughline links it as soon as the pull request is opened, so there is nothing to propose.
 
-- `pending`: done. The link waits in Throughline's review queue.
-- `already_pending` or `already_linked`: done; nothing more to do.
+Otherwise, call `propose_link` with `project: "factory"`, the pull request's URL, the key, and a one- or two-sentence `rationale` a reviewer can check against the diff.
+
+- `pending`, `already_pending` or `already_linked`: done.
 - An error saying Throughline has not seen the pull request: the GitHub sync has not delivered it yet. Wait a minute and call once more. If it still fails, say so in your summary rather than retrying.
 
-If the `throughline` tools are not available, say so in your summary. A pull request body that says `Implements TL-n` is still linked automatically when it merges.
+If the `throughline` tools are not available, say so in your summary.
