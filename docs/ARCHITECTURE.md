@@ -31,6 +31,12 @@ A factory needs a place where work waits and where its state lives. GitHub label
 
 Tested by: TL-6. Revisit if two factories need to share work or ordering matters, when a table in the run log database can take over.
 
+### An unattended run is one confined headless Claude Code call (TL-4)
+
+`scripts/run-issue.sh` clones the target repository into a temporary directory and runs `claude -p --bare` there. Permissions are settled before the run, because nobody can answer a prompt: `dontAsk` mode denies anything not pre-approved, `Read` and `Edit` are allowed inside the clone only, and Bash runs in Claude Code's OS sandbox with no network, no writes outside the clone and no reads of the home directory. The agent gets no git or GitHub access: the script commits, pushes and opens a draft PR, so a prompt-injected issue cannot push or merge anything. Each run's settings, transcript and outcome are written to `.runlog/runs/<run-id>/` until the run log table exists.
+
+Tested by: TL-4 (`docs/notes/04-run-issue.md`). Revisit when TL-6 moves runs onto GitHub Actions runners, which can drop the home-directory rule for a throwaway VM.
+
 ### Gates are Claude Code hooks (TL-5)
 
 A stop hook runs typecheck, lint and tests and refuses to let the agent end its turn while any fail. Hooks run outside the model, so they cannot be talked out of. The hook output names the failing check so the agent can act on it.

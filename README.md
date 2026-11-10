@@ -20,6 +20,15 @@ scripts/       run-issue.sh, render-plan.ts and the other one-command entry poin
 
 Most of these directories are empty on purpose. The plan says what goes in each and in which order.
 
+## Run one issue
+
+```sh
+cp .env.example .env.local   # set ANTHROPIC_API_KEY
+scripts/run-issue.sh https://github.com/<owner>/<repo>/issues/<n>
+```
+
+Needs `claude`, `gh` (logged in), `git`, `jq` and `perl`. The agent works in a temporary clone with no network and no access outside it; the script opens a draft PR and records the run in `.runlog/runs/`. [factory-sample](https://github.com/JakobKrzyston/factory-sample) is the practice repository.
+
 ## The five parts of a factory
 
 Every factory here, and the ones at Warp and in Matt Pocock's course, has the same parts:
