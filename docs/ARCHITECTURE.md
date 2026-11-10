@@ -58,7 +58,9 @@ Tested by: TL-10. Revisit when a second factory gets its own App: an App with wr
 
 ### The run log is a table, not a log file (TL-11)
 
-One row per run, written at start and end. SQLite in `.runlog/` locally, Neon Postgres in the cloud, same schema. Columns: `factory`, `role`, `issue`, `model`, `input_tokens`, `output_tokens`, `cost_usd`, `wall_seconds`, `checks_passed`, `review_findings`, `rework` (set when a human changed the PR between hand-off and merge), `benchmark` (true for replay runs, so they stay out of production metrics).
+One row per run, written at start and end. SQLite in `.runlog/` locally, Neon Postgres in the cloud, same schema: one SQL file (`platform/runlog/migrations/001_runs.sql`) runs unchanged on both. Columns: `factory`, `role`, `issue`, `model`, `input_tokens`, `output_tokens`, `cost_usd`, `wall_seconds`, `checks_passed`, `review_findings`, `rework` (set when a human changed the PR between hand-off and merge), `benchmark` (true for replay runs, so they stay out of production metrics).
+
+TL-11 added the columns a run needs to be reconstructed from its row and its PR: `id`, `status`, `started_at` and `ended_at`; `factory_sha` (which definition ran); `repo`, `pr` and `head_sha` (exactly what it produced, and what `rework` compares against); and `cache_read_tokens` and `cache_write_tokens`, without which input tokens understate an agent run and cost cannot be checked. Each column is described in `platform/runlog/README.md`.
 
 Tested by: TL-11, TL-12. The dashboard (TL-13) only reads this table.
 

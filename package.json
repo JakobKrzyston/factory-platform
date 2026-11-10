@@ -2,6 +2,7 @@
   "name": "factory-platform",
   "version": "0.0.0",
   "private": true,
+  "type": "module",
   "description": "A software factory built in the open, one measured stage at a time.",
   "license": "MIT",
   "packageManager": "pnpm@12.16.1",
@@ -12,6 +13,8 @@
     "plan": "tsx scripts/render-plan.ts",
     "tickets": "tsx scripts/create-issues.ts",
     "typecheck": "tsc",
+    "test": "tsx --test \"platform/**/*.test.ts\"",
+    "runlog:migrate": "tsx --env-file-if-exists=.env.local platform/runlog/migrate.ts",
     "merge-gate": "tsx scripts/apply-rulesets.ts",
     "check-merge-gate": "tsx scripts/check-merge-gate.ts"
   },
@@ -23,5 +26,8 @@
   "repository": {
     "type": "git",
     "url": "https://github.com/JakobKrzyston/factory-platform"
+  },
+  "dependencies": {
+    "postgres": "^4.1.0"
   }
 }
