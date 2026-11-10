@@ -1,0 +1,24 @@
+# The required check on main (see .github/rulesets/main-green-checks.json).
+# TL-5 adds lint and test to this job; keep the job name `checks` or update the ruleset with it.
+name: CI
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: typecheck
+        run: pnpm typecheck
+      - name: PLAN.md matches docs/roadmap.ts
+        run: pnpm plan && git diff --exit-code docs/PLAN.md
