@@ -23,11 +23,12 @@ Most of these directories are empty on purpose. The plan says what goes in each 
 ## Run one issue
 
 ```sh
+pnpm install                 # the stop hook and its sandbox run from this checkout
 cp .env.example .env.local   # set ANTHROPIC_API_KEY
 scripts/run-issue.sh https://github.com/<owner>/<repo>/issues/<n>
 ```
 
-Needs `claude`, `gh` (logged in), `git`, `jq` and `perl`. The agent works in a temporary clone with no network and no access outside it; the script opens a draft PR and records the run in `.runlog/runs/`. [factory-sample](https://github.com/JakobKrzyston/factory-sample) is the practice repository.
+Needs macOS, Node 22, `claude`, `gh` (logged in), `git`, `jq` and `perl`. The agent works in a temporary clone with no network and no access outside it, and a stop hook keeps it working while the repository's `typecheck`, `lint` or `test` script fails. The script opens a draft PR only when those checks passed, and records the run in `.runlog/runs/`. [factory-sample](https://github.com/JakobKrzyston/factory-sample) is the practice repository.
 
 ## The five parts of a factory
 

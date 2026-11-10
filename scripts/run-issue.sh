@@ -4,8 +4,9 @@
 # Usage: scripts/run-issue.sh https://github.com/<owner>/<repo>/issues/<n>
 #
 # The agent works in a fresh clone and can only read and edit that clone and run
-# sandboxed shell commands; it cannot reach GitHub. This script commits, pushes
-# and opens the PR. Each run is recorded under .runlog/runs/<run-id>/.
+# sandboxed shell commands; it cannot reach GitHub. A stop hook refuses to let it
+# finish while the repository's typecheck, lint or test script fails. This script
+# commits, pushes and opens the PR. Each run is recorded under .runlog/runs/<run-id>/.
 set -euo pipefail
 
 MODEL=sonnet
@@ -54,15 +55,24 @@ TITLE=$(jq -r .title <<<"$ISSUE")
 BODY=$(jq -r .body <<<"$ISSUE")
 
 # Bash runs in the OS sandbox: writes only inside the clone, no reads of the
-# owner's home directory or the key, no network.
+# owner's home directory or the key, no network. The stop hook runs outside it,
+# and runs the checks in a sandbox of its own (platform/gates/checks.ts).
 cat > "$RUN_DIR/settings.json" <<JSON
 {
   "apiKeyHelper": "cat $KEY_DIR/key",
+  "autoMemoryEnabled": false,
   "permissions": { "deny": ["Read(~/**)", "Read(/$KEY_DIR/**)"] },
   "sandbox": {
     "enabled": true,
     "autoAllowBashIfSandboxed": true,
     "allowUnsandboxedCommands": false
+  },
+  "hooks": {
+    "Stop": [{ "hooks": [{
+      "type": "command",
+      "command": "$ROOT/node_modules/.bin/tsx $ROOT/platform/gates/stop-hook.ts $WORKDIR $RUN_DIR/gates.jsonl",
+      "timeout": 600
+    }] }]
   }
 }
 JSON
@@ -76,6 +86,7 @@ $BODY"
 SYSTEM="You are running unattended: nobody will answer questions or approve anything. \
 Work only in the current directory. Do not commit; the script that started you commits and opens the pull request. \
 If the project has tests, run them before you finish. \
+When you try to finish, a gate runs the project's typecheck, lint and test scripts; while any fails, it tells you which and you keep working. \
 End with a short summary for the pull request description: what changed, how you checked it, and anything left undone."
 
 jq -n \
@@ -99,7 +110,7 @@ STATUS=0
 (cd "$WORKDIR" && perl -e 'alarm shift; exec @ARGV' "$TIME_LIMIT_SECONDS" \
   env -i PATH="$PATH" HOME="$HOME" \
   claude -p "$PROMPT" \
-    --bare --setting-sources "" --strict-mcp-config --no-session-persistence \
+    --setting-sources "" --strict-mcp-config --no-session-persistence \
     --model "$MODEL" --max-budget-usd "$BUDGET_USD" \
     --tools "$TOOLS" --allowedTools "${ALLOWED_TOOLS[@]}" \
     --permission-mode "$PERMISSION_MODE" --permission-prompts none \
@@ -111,16 +122,22 @@ STATUS=0
 # A run killed by the time limit can leave a truncated last line, so parse leniently.
 RESULT=$(jq -nR '[inputs | fromjson? | select(.type == "result")] | last // {}' "$RUN_DIR/transcript.jsonl")
 MODEL_ID=$(jq -nR '[inputs | fromjson? | select(.type == "system" and .subtype == "init") | .model] | first' "$RUN_DIR/transcript.jsonl")
+# The stop hook appends a line each time the agent tries to finish; the last
+# line is the state it finished in. No line means the gate never ran.
+GATES='[]'
+if [[ -f $RUN_DIR/gates.jsonl ]]; then GATES=$(jq -s . "$RUN_DIR/gates.jsonl"); fi
 CHANGED=$(git -C "$WORKDIR" status --porcelain | wc -l | tr -d ' ')
 # A pushed branch runs its own workflows with the repository's secrets, so the
 # agent may not change them.
 WORKFLOWS_CHANGED=$(git -C "$WORKDIR" status --porcelain -- .github | wc -l | tr -d ' ')
 jq \
   --argjson exit_code "$STATUS" --argjson result "$RESULT" --argjson model_id "$MODEL_ID" \
-  --argjson files_changed "$CHANGED" --argjson workflows_changed "$WORKFLOWS_CHANGED" \
+  --argjson files_changed "$CHANGED" --argjson workflows_changed "$WORKFLOWS_CHANGED" --argjson gates "$GATES" \
   --arg finished_at "$(date -u +%FT%TZ)" \
   '. + {finished_at: $finished_at, exit_code: $exit_code, timed_out: ($exit_code == 142),
         model_id: $model_id, files_changed: $files_changed, github_dir_changed: ($workflows_changed > 0),
+        checks_passed: ($gates | last | .passed // false), checks: ($gates | last | .checks // []),
+        gate_attempts: ($gates | length), gate_failures: ($gates | map(select(.passed | not)) | length),
         result_subtype: $result.subtype, is_error: $result.is_error,
         num_turns: $result.num_turns, duration_ms: $result.duration_ms,
         cost_usd: $result.total_cost_usd, usage: $result.usage,
@@ -129,8 +146,9 @@ jq \
 
 if [[ $STATUS -ne 0 || $(jq -r '.result_subtype' "$RUN_DIR/run.json") != success \
       || $(jq -r '.is_error' "$RUN_DIR/run.json") != false \
+      || $(jq -r '.checks_passed' "$RUN_DIR/run.json") != true \
       || $CHANGED -eq 0 || $WORKFLOWS_CHANGED -ne 0 ]]; then
-  echo "run $RUN_ID: no pull request (agent exit $STATUS, result $(jq -r '.result_subtype' "$RUN_DIR/run.json"), $CHANGED files changed, $WORKFLOWS_CHANGED under .github); see $RUN_DIR" >&2
+  echo "run $RUN_ID: no pull request (agent exit $STATUS, result $(jq -r '.result_subtype' "$RUN_DIR/run.json"), checks passed $(jq -r '.checks_passed' "$RUN_DIR/run.json"), $CHANGED files changed, $WORKFLOWS_CHANGED under .github); see $RUN_DIR" >&2
   exit 1
 fi
 
@@ -141,7 +159,7 @@ PR_BODY="$(jq -r '.result // "The agent left no summary."' <<<"$RESULT")
 
 Opened unattended by \`scripts/run-issue.sh\` in [factory-platform](https://github.com/JakobKrzyston/factory-platform). A human reviews and merges.
 
-$(jq -r '"| Run | `\(.run_id)` |\n| --- | --- |\n| Model | \(.model_id) |\n| Tools | \(.tools | join(", ")) (Read and Edit limited to the clone, Bash sandboxed) |\n| Time limit | \(.time_limit_seconds)s |\n| Turns | \(.num_turns) |\n| Agent time | \(.duration_ms / 1000 | floor)s |\n| Cost | $\(.cost_usd * 100 | round / 100) |"' "$RUN_DIR/run.json")
+$(jq -r '"| Run | `\(.run_id)` |\n| --- | --- |\n| Model | \(.model_id) |\n| Tools | \(.tools | join(", ")) (Read and Edit limited to the clone, Bash sandboxed) |\n| Checks | \(if .checks == [] then "none defined" else (.checks | map(.name) | join(", ")) + " passed" end); \(.gate_failures) of \(.gate_attempts) attempts to finish refused |\n| Time limit | \(.time_limit_seconds)s |\n| Turns | \(.num_turns) |\n| Agent time | \(.duration_ms / 1000 | floor)s |\n| Cost | $\(.cost_usd * 100 | round / 100) |"' "$RUN_DIR/run.json")
 
 Closes #$NUMBER"
 
