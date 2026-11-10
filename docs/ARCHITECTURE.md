@@ -69,7 +69,11 @@ Tested by: TL-22, TL-23.
 
 ### Throughline keeps the roadmap (TL-1 to TL-3)
 
-`docs/roadmap.ts` is the source of truth. It renders `docs/PLAN.md`, seeds the Throughline `factory` project, and creates the tickets. PRs say `Implements TL-n`; Throughline reconciles them on merge. A Throughline MCP server (TL-3) will let agents read their requirement and propose the link themselves.
+`docs/roadmap.ts` is the source of truth. It renders `docs/PLAN.md`, seeds the Throughline `factory` project, and creates the tickets. PRs say `Implements TL-n`; Throughline reconciles them on merge.
+
+Agents reach Throughline through its MCP server (TL-3), registered in `.mcp.json`: `get_requirement` reads the requirement being implemented and `propose_link` proposes the PR's link to it. The server lives in Throughline (`/api/mcp`), not in `platform/`, because it is a way into Throughline's graph and must go through Throughline's own proposal code; a copy here would have to write to its database directly. It authenticates with a bearer token plus the Vercel protection bypass, and has no tool that approves anything: an agent's link is a pending proposal labelled "Proposed by an agent" until the owner approves it. The `throughline` skill in `.claude/skills/` tells an agent when to call each tool.
+
+Tested by: TL-3. Unattended runs (TL-4) start Claude Code with `--bare` and no network, so they do not load `.mcp.json`; giving the implementer these tools there belongs to its agent definition (TL-7).
 
 ## Non-goals
 
