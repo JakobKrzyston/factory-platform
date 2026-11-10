@@ -24,7 +24,7 @@ It is a public portfolio project. Every decision must be explainable in an inter
 
 ## Working conventions
 
-- Branch from `main` as `tl-N-short-name`.
+- Branch from `main` as `tl/N-short-name` (`wt new N-short-name` creates it).
 - PR title `TL-N: <title>`. Body: what was built, how to try it, risk (one-way or two-way door) and blast radius, evidence (tests, screenshots, checks), and `Implements TL-N` so Throughline reconciles it.
 - Write the note the acceptance list asks for under `docs/notes/NN-short-name.md`: expected, happened, what the numbers said.
 - Prefer small, readable files over clever abstractions. The repo owner must be able to explain every part.

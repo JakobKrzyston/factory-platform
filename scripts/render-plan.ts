@@ -15,7 +15,7 @@ const lines: string[] = [
   "",
   "**Workflow for every requirement**",
   "",
-  "1. Branch from `main` as `tl-N-short-name`.",
+  "1. Branch from `main` as `tl/N-short-name` (`wt new N-short-name` creates it).",
   "2. Build only what the requirement describes. Anything else becomes a new ticket.",
   "3. Write the note the acceptance list asks for, if it asks for one, under `docs/notes/`.",
   "4. Open a PR titled `TL-N: <title>` with what was built, how to try it, the risk and blast radius, and `Implements TL-N`.",
