@@ -24,7 +24,7 @@ Throughline tracks this project from day one: every merged pull request updates 
 
 ### TL-1: Private Throughline instance on a dedicated database and model key
 
-infrastructure · platform · 2026-Q4 · in_progress
+infrastructure · platform · 2026-Q4 · done
 
 A second Throughline deployment, separate from the public demo, with its own Neon database and the owner's Anthropic key, protected by Vercel authentication so only the owner can approve proposals.
 
@@ -36,7 +36,7 @@ A second Throughline deployment, separate from the public demo, with its own Neo
 
 ### TL-2: Pull requests reconcile the roadmap automatically
 
-infrastructure · platform · 2026-Q4
+infrastructure · platform · 2026-Q4 · done
 
 The factory-platform repository is connected through the GitHub App. A merged pull request that says `Implements TL-n` becomes a reconciliation proposal within minutes.
 

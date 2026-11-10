@@ -25,8 +25,9 @@ One side effect: TL-2's own issue text contained the keyword `Implements` follow
 | Open issues imported on connect | 23 (#2 to #24; #1 was already closed) |
 | Deliveries of the PR #25 merge event | 5: 4 failed (401), 1 succeeded (200) |
 | Merge to proposal, wall clock | 67 minutes (01:40 to 02:47 UTC), almost all of it fixing configuration |
-| Successful delivery to pending proposal | 7 seconds |
+| Successful delivery to pending proposal (redelivered PR #25 event) | 7 seconds |
+| Live merge to pending proposal (PR #26, no redelivery) | About 9.5 seconds: merged 02:56:01, proposal created 02:56:10.5 UTC, approved 02:58:54 |
 | Proposal | Names TL-1, classifies it as done, cites the stage note's evidence |
 | Model cost | One reconciliation call; not measured, as there is no run log until TL-11 |
 
-The 7 seconds is what TL-2 promises. The 67 minutes is the lesson: an integration that fails quietly needs a check you can run, not a status page you have to know to open. GitHub's Recent Deliveries was the only place that showed all four failures.
+The 7 seconds, and the 9.5 on a live merge, are what TL-2 promises. The 67 minutes is the lesson: an integration that fails quietly needs a check you can run, not a status page you have to know to open; that check is #32. GitHub's Recent Deliveries was the only place that showed all four failures.

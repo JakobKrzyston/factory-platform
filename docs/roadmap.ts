@@ -46,7 +46,7 @@ export const OUTCOMES: Outcome[] = [
         workType: "infrastructure",
         team: "platform",
         target: "2026-Q4",
-        status: "in_progress",
+        status: "done",
         acceptance: [
           "The factory database has every Throughline migration applied and a `factory` project.",
           "The deployment is unreachable without signing in to Vercel.",
@@ -61,6 +61,7 @@ export const OUTCOMES: Outcome[] = [
         workType: "infrastructure",
         team: "platform",
         target: "2026-Q4",
+        status: "done",
         userVisible: true,
         productNote: "Each stage of the factory appears on the roadmap as soon as its work merges.",
         acceptance: [
