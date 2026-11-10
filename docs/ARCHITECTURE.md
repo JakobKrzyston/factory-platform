@@ -49,6 +49,19 @@ Tested by: TL-5. The same gates run in CI, so a PR cannot pass locally and fail 
 
 Tested by: TL-7, then the benchmark in TL-15.
 
+### Humans merge: two rulesets and a factory App (TL-10)
+
+The factory acts on GitHub as its own GitHub App, never as the owner and never through Actions' `GITHUB_TOKEN`. An owner token would make the owner the PR author, and GitHub does not let authors approve their own PRs, so the one human here could never approve factory work. `GITHUB_TOKEN` is ruled out twice: PRs it opens do not trigger workflows, so the required check would never run, and letting it open PRs also lets it approve them. The App gets read-write Contents, Pull requests and Issues, and nothing else: without Workflows it cannot edit `.github/workflows`, and without Checks or Commit statuses it cannot post a green check of its own.
+
+Two rulesets on `main`, kept as JSON in `.github/rulesets/` and applied with `pnpm merge-gate`:
+
+- **main: human merges** restricts updates, deletion and force pushes, and requires one approving review that is dismissed by later pushes and must come after the last push. Only the admin role bypasses it, and only through a pull request. The update restriction is what stops the App merging even after a human approves; the review rule is what stops anyone merging factory work unreviewed. The owner's bypass is how the owner merges their own PRs, since nobody else can review them.
+- **main: green checks** requires the `checks` job from `.github/workflows/ci.yml`, pinned to the GitHub Actions app so nothing else can report it. Nobody bypasses it.
+
+Two rulesets, because bypass is per ruleset: one ruleset would let the owner skip checks along with review. `pnpm check-merge-gate` proves the gate from the App's side by opening a PR, trying to approve and merge it, and expecting both to be refused.
+
+Tested by: TL-10. Revisit when a second factory gets its own App: an App with write access can approve a PR it did not open, so two factory Apps could approve each other's PRs. Until then every factory shares one App.
+
 ### The run log is a table, not a log file (TL-11)
 
 One row per run, written at start and end. SQLite in `.runlog/` locally, Neon Postgres in the cloud, same schema. Columns: `factory`, `role`, `issue`, `model`, `input_tokens`, `output_tokens`, `cost_usd`, `wall_seconds`, `checks_passed`, `review_findings`, `rework` (set when a human changed the PR between hand-off and merge), `benchmark` (true for replay runs, so they stay out of production metrics).
@@ -75,7 +88,11 @@ Tested by: TL-22, TL-23.
 
 ### Throughline keeps the roadmap (TL-1 to TL-3)
 
-`docs/roadmap.ts` is the source of truth. It renders `docs/PLAN.md`, seeds the Throughline `factory` project, and creates the tickets. PRs say `Implements TL-n`; Throughline reconciles them on merge. A Throughline MCP server (TL-3) will let agents read their requirement and propose the link themselves.
+`docs/roadmap.ts` is the source of truth. It renders `docs/PLAN.md`, seeds the Throughline `factory` project, and creates the tickets. PRs say `Implements TL-n`; Throughline reconciles them on merge.
+
+Agents reach Throughline through its MCP server (TL-3), registered in `.mcp.json`: `get_requirement` reads the requirement being implemented and `propose_link` proposes the PR's link to it. The server lives in Throughline (`/api/mcp`), not in `platform/`, because it is a way into Throughline's graph and must go through Throughline's own proposal code; a copy here would have to write to its database directly. It authenticates with a bearer token plus the Vercel protection bypass, and has no tool that approves anything: an agent's link is a pending proposal labelled "Proposed by an agent" until the owner approves it. The bypass secret is the weak point. Throughline has no sign-in of its own, so the secret opens the whole instance, and an agent holding it could approve proposals on the review page. For now only interactive sessions the owner watches get it; they already hold the owner's GitHub login, which can merge, so it gives them nothing new. An unattended agent needs a way in that carries only the MCP token first (issue #35). The `throughline` skill in `.claude/skills/` tells an agent when to call each tool.
+
+Tested by: TL-3. Unattended runs (TL-4) start Claude Code with `--bare` in a clone of the target repository, so they load no `.mcp.json`; passing `--mcp-config` would give them the tools. What holds that back is the credentials: which ones an unattended agent may carry belongs to its agent definition (TL-7).
 
 ## Non-goals
 
