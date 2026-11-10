@@ -1,0 +1,142 @@
+# The work queue (TL-6). Adding `factory:ready` to an issue starts one unattended run on it, and the
+# issue's factory:* label is its state from then on. See platform/queue/README.md.
+name: Factory
+on:
+  issues:
+    types: [labeled, closed]
+permissions:
+  contents: read
+
+jobs:
+  run:
+    if: github.event.action == 'labeled' && github.event.label.name == 'factory:ready'
+    runs-on: ubuntu-latest
+    # The secrets live in an environment that deploys from main only, so a workflow running a
+    # factory branch's code cannot read them (#33).
+    environment: factory
+    # One run per issue at a time. A second run waits here, then finds the label gone and stops.
+    concurrency:
+      group: factory-issue-${{ github.event.issue.number }}
+      cancel-in-progress: false
+    timeout-minutes: 45
+    env:
+      REPO: ${{ github.repository }}
+      ISSUE: ${{ github.event.issue.number }}
+      ISSUE_URL: ${{ github.event.issue.html_url }}
+      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # The factory acts as its own App, never as GITHUB_TOKEN: PRs that token opens run no CI (TL-10).
+      - uses: actions/create-github-app-token@v3
+        id: app
+        with:
+          app-id: ${{ vars.FACTORY_APP_ID }}
+          private-key: ${{ secrets.FACTORY_APP_PRIVATE_KEY }}
+          permission-contents: write
+          permission-issues: write
+          permission-pull-requests: write
+
+      - name: Claim the issue
+        id: claim
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+        run: echo "claimed=$(pnpm exec tsx platform/queue/queue.ts claim "$REPO" "$ISSUE")" >> "$GITHUB_OUTPUT"
+
+      - name: Prepare the runner
+        if: steps.claim.outputs.claimed == 'true'
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+          APP_SLUG: ${{ steps.app.outputs.app-slug }}
+        run: |
+          # Claude Code sandboxes Bash with bubblewrap on Linux, and Ubuntu's AppArmor default
+          # blocks the user namespaces bubblewrap needs.
+          sudo apt-get update -q
+          sudo apt-get install -y -q --no-install-recommends bubblewrap socat
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          npm install -g @anthropic-ai/claude-code@2.1.322
+          # run-issue.sh commits and pushes as the App.
+          gh auth setup-git
+          git config --global user.name "$APP_SLUG[bot]"
+          git config --global user.email "$(gh api "users/$APP_SLUG%5Bbot%5D" --jq .id)+$APP_SLUG[bot]@users.noreply.github.com"
+
+      - name: Run the agent
+        id: agent
+        if: steps.claim.outputs.claimed == 'true'
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          code=0
+          scripts/run-issue.sh "$ISSUE_URL" > "$RUNNER_TEMP/out" || code=$?
+          comment=$RUNNER_TEMP/comment.md
+          if [[ $code -eq 0 ]]; then
+            pnpm exec tsx platform/queue/queue.ts set "$REPO" "$ISSUE" in-review
+          elif [[ $code -eq 3 ]]; then
+            {
+              echo "The factory stopped to ask a question:"
+              echo
+              sed 's/^/> /' "$RUNNER_TEMP/out"
+              echo
+              echo "Answer in a comment here, then add \`factory:ready\` again. [Run log]($RUN_URL)"
+            } > "$comment"
+            pnpm exec tsx platform/queue/queue.ts set "$REPO" "$ISSUE" needs-human "$comment"
+          else
+            echo "The factory run ended without a pull request (exit $code). See the [run log]($RUN_URL), then add \`factory:ready\` to try again." > "$comment"
+            pnpm exec tsx platform/queue/queue.ts set "$REPO" "$ISSUE" needs-human "$comment"
+          fi
+          echo "reported=true" >> "$GITHUB_OUTPUT"
+          # A question is a state, not a failure; anything else turns the Actions run red.
+          [[ $code -eq 0 || $code -eq 3 ]]
+
+      # A run that times out, is cancelled or breaks before reporting must not stay in-progress.
+      - name: Report a run that stopped early
+        if: always() && steps.claim.outputs.claimed == 'true' && steps.agent.outputs.reported != 'true'
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          echo "The factory run stopped before it could report ($JOB_STATUS). See the [run log]($RUN_URL), then add \`factory:ready\` to try again." > "$RUNNER_TEMP/comment.md"
+          pnpm exec tsx platform/queue/queue.ts set "$REPO" "$ISSUE" needs-human "$RUNNER_TEMP/comment.md"
+
+      - uses: actions/upload-artifact@v7
+        if: always() && steps.claim.outputs.claimed == 'true'
+        with:
+          name: run-issue-${{ github.event.issue.number }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .runlog/runs/
+          include-hidden-files: true
+          if-no-files-found: ignore
+
+  # The factory's PR says "Closes #N", so merging it closes the issue as completed.
+  done:
+    if: >-
+      github.event.action == 'closed' && github.event.issue.state_reason == 'completed'
+      && contains(github.event.issue.labels.*.name, 'factory:in-review')
+    runs-on: ubuntu-latest
+    environment: factory
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - uses: actions/create-github-app-token@v3
+        id: app
+        with:
+          app-id: ${{ vars.FACTORY_APP_ID }}
+          private-key: ${{ secrets.FACTORY_APP_PRIVATE_KEY }}
+          permission-issues: write
+      - env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+        run: pnpm exec tsx platform/queue/queue.ts set "${{ github.repository }}" "${{ github.event.issue.number }}" done

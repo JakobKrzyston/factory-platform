@@ -17,7 +17,8 @@
     "test": "tsx --test \"platform/**/*.test.ts\"",
     "runlog:migrate": "tsx --env-file-if-exists=.env.local platform/runlog/migrate.ts",
     "merge-gate": "tsx scripts/apply-rulesets.ts",
-    "check-merge-gate": "tsx scripts/check-merge-gate.ts"
+    "check-merge-gate": "tsx scripts/check-merge-gate.ts",
+    "queue": "tsx platform/queue/queue.ts"
   },
   "devDependencies": {
     "@biomejs/biome": "2.6.6",

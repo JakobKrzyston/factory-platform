@@ -7,6 +7,9 @@
 # sandboxed shell commands; it cannot reach GitHub. A stop hook refuses to let it
 # finish while the repository's typecheck, lint or test script fails. This script
 # commits, pushes and opens the PR. Each run is recorded under .runlog/runs/<run-id>/.
+#
+# Exit status: 0 with the PR's URL on stdout; 3 with the agent's question on
+# stdout when it stopped to ask one; anything else means no PR.
 set -euo pipefail
 
 MODEL=sonnet
@@ -50,9 +53,13 @@ mkdir -p "$RUN_DIR"
 gh repo clone "$REPO" "$WORKDIR" -- --quiet
 BASE=$(git -C "$WORKDIR" symbolic-ref --short HEAD)
 git -C "$WORKDIR" switch --quiet -c "$BRANCH"
-ISSUE=$(gh issue view "$ISSUE_URL" --json title,body)
+ISSUE=$(gh issue view "$ISSUE_URL" --json title,body,comments)
 TITLE=$(jq -r .title <<<"$ISSUE")
 BODY=$(jq -r .body <<<"$ISSUE")
+# Only comments from people who could have queued the issue themselves: that is
+# where a human answers the agent's question. Anyone else's stay out of the prompt.
+COMMENTS=$(jq -r '[.comments[] | select(.authorAssociation | IN("OWNER", "MEMBER", "COLLABORATOR"))
+  | "\(.author.login) commented:\n\n\(.body)"] | join("\n\n---\n\n")' <<<"$ISSUE")
 
 # The gate runs the scripts from this copy, out of the agent's reach, so editing
 # package.json or committing in the clone cannot change what it runs.
@@ -72,6 +79,7 @@ cat > "$RUN_DIR/settings.json" <<JSON
   "permissions": { "deny": ["Read(~/**)", "Read(/$KEY_DIR/**)"] },
   "sandbox": {
     "enabled": true,
+    "failIfUnavailable": true,
     "autoAllowBashIfSandboxed": true,
     "allowUnsandboxedCommands": false
   },
@@ -90,11 +98,20 @@ PROMPT="Resolve GitHub issue #$NUMBER in this repository.
 Title: $TITLE
 
 $BODY"
+if [[ -n $COMMENTS ]]; then
+  PROMPT+="
 
-SYSTEM="You are running unattended: nobody will answer questions or approve anything. \
+Comments from the maintainers:
+
+$COMMENTS"
+fi
+
+SYSTEM="You are running unattended: nobody will answer you during the run or approve anything. \
 Work only in the current directory. Do not commit; the script that started you commits and opens the pull request. \
 If the project has tests, run them before you finish. \
 When you try to finish, a gate runs the project's typecheck, lint and test scripts; while any fails, it tells you which and you keep working. \
+If you cannot finish without a decision only a person can make, do not guess: stop, and make your final message \
+start with QUESTION: followed by the one question you need answered. Asking discards your changes. \
 End with a short summary for the pull request description: what changed, how you checked it, and anything left undone."
 
 jq -n \
@@ -151,6 +168,16 @@ jq \
         cost_usd: $result.total_cost_usd, usage: $result.usage,
         permission_denials: $result.permission_denials}' \
   "$RUN_DIR/run.json" > "$RUN_DIR/run.json.tmp" && mv "$RUN_DIR/run.json.tmp" "$RUN_DIR/run.json"
+
+SUMMARY=$(jq -r '.result // ""' <<<"$RESULT")
+if [[ $STATUS -eq 0 && $SUMMARY == QUESTION:* ]]; then
+  QUESTION=$(sed '1s/^QUESTION:[[:space:]]*//' <<<"$SUMMARY")
+  jq --arg question "$QUESTION" '. + {question: $question}' "$RUN_DIR/run.json" > "$RUN_DIR/run.json.tmp" \
+    && mv "$RUN_DIR/run.json.tmp" "$RUN_DIR/run.json"
+  echo "run $RUN_ID: the agent asked a question, so no pull request; see $RUN_DIR" >&2
+  printf '%s\n' "$QUESTION"
+  exit 3
+fi
 
 if [[ $STATUS -ne 0 || $(jq -r '.result_subtype' "$RUN_DIR/run.json") != success \
       || $(jq -r '.is_error' "$RUN_DIR/run.json") != false \
