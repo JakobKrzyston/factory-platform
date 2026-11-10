@@ -64,7 +64,7 @@ export const OUTCOMES: Outcome[] = [
         userVisible: true,
         productNote: "Each stage of the factory appears on the roadmap as soon as its work merges.",
         acceptance: [
-          "Merging a PR with `Implements TL-4` produces a pending proposal on the `factory` project.",
+          "Merging the first PR that implements a later requirement (TL-4) produces a pending proposal on the `factory` project.",
           "The proposal names the requirement and classifies the work as done, partly done, or scope added.",
         ],
       },

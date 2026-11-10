@@ -42,7 +42,7 @@ The factory-platform repository is connected through the GitHub App. A merged pu
 
 **Acceptance**
 
-- Merging a PR with `Implements TL-4` produces a pending proposal on the `factory` project.
+- Merging the first PR that implements a later requirement (TL-4) produces a pending proposal on the `factory` project.
 - The proposal names the requirement and classifies the work as done, partly done, or scope added.
 
 ### TL-3: Throughline MCP server for factory agents
