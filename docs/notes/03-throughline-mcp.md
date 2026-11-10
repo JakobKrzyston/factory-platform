@@ -25,4 +25,5 @@ Throughline had no API to wrap: every write is a server action behind its review
 | `propose_link` with a Files-tab address in other case and key `tl-11` | Found PR #109 and proposed the link to TL-11 |
 | Review queue after `propose_link` | The proposal shows "Proposed by an agent" with the agent's rationale |
 | Claude Code through this repo's `.mcp.json` | Called `get_requirement` against the local instance and reported the right title and status |
-| Against the private instance | Not yet run: needs the Throughline release, migration 0013 on the factory database and `MCP_TOKEN` set |
+| Private instance, request with no headers or a wrong token | 302 to Vercel sign-in: the protection stops it before Throughline sees it |
+| Private instance, Claude Code through `.mcp.json` with the token and bypass secret | `get_requirement` returned TL-3, "Throughline MCP server for factory agents", `in_progress` (Throughline release 0.4.0) |
