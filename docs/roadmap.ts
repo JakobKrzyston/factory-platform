@@ -84,6 +84,20 @@ export const OUTCOMES: Outcome[] = [
           "Proposals created by agents are marked with their source and still require human approval.",
         ],
       },
+      {
+        key: "TL-25",
+        title: "Health check for the GitHub-to-Throughline webhook",
+        description:
+          "A command, run daily, that reports the Throughline App's recent webhook deliveries and proves the webhook URL still gets past Vercel protection. TL-2's link failed silently four times: protection rejects a request before the function runs, so only GitHub's Recent Deliveries showed it (issue #32).",
+        workType: "infrastructure",
+        team: "platform",
+        target: "2026-Q4",
+        acceptance: [
+          "One command reports the status code and time of the App's most recent webhook deliveries, and exits non-zero if the latest one failed.",
+          "The same command confirms that a signed-out POST to the webhook URL, bypass included, reaches Throughline rather than a 401 from Vercel.",
+          "It runs on a schedule, so a broken link is caught before a merge goes unreconciled.",
+        ],
+      },
     ],
   },
   {

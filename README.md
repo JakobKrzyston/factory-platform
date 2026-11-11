@@ -9,7 +9,7 @@ It is also the factory's own first customer. Every requirement below is a ticket
 ## What is here
 
 ```
-platform/      shared by every factory: the work queue, run log, gate runner and replay harness
+platform/      shared by every factory: the work queue, run log, gate runner, replay harness and health checks
 factories/     one directory per factory; copy one to create a factory, move folders to split one
   code/        the first factory: agents/, triggers/, scorers/, skills/
 benchmark/     past issues with expected outcomes, replayed to judge any factory change

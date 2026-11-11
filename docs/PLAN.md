@@ -56,6 +56,18 @@ An MCP server over Throughline's API so a factory agent can read the requirement
 - A factory implementer can call `get_requirement(TL-n)` and `propose_link(pr, TL-n)`.
 - Proposals created by agents are marked with their source and still require human approval.
 
+### TL-25: Health check for the GitHub-to-Throughline webhook
+
+infrastructure · platform · 2026-Q4
+
+A command, run daily, that reports the Throughline App's recent webhook deliveries and proves the webhook URL still gets past Vercel protection. TL-2's link failed silently four times: protection rejects a request before the function runs, so only GitHub's Recent Deliveries showed it (issue #32).
+
+**Acceptance**
+
+- One command reports the status code and time of the App's most recent webhook deliveries, and exits non-zero if the latest one failed.
+- The same command confirms that a signed-out POST to the webhook URL, bypass included, reaches Throughline rather than a 401 from Vercel.
+- It runs on a schedule, so a broken link is caught before a merge goes unreconciled.
+
 ---
 
 ## OUT-2: One factory turns a labelled issue into a reviewed pull request unattended
