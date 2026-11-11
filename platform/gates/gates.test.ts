@@ -111,7 +111,10 @@ test("checks run in the sandbox: the checkout is writable; home, denied paths, n
   const [inside, home, keyRead, network, socket] = runChecks(
     dir,
     [
-      { name: "inside", script: "touch written-by-check && node -e 0" },
+      {
+        name: "inside",
+        script: `touch written-by-check && node -e "require('node:fs').mkdtempSync(require('node:path').join(require('node:os').tmpdir(), 'x'))"`,
+      },
       { name: "home", script: `ls ${JSON.stringify(homedir())}` },
       { name: "key", script: `cat ${JSON.stringify(key.file)}` },
       { name: "network", script: "curl -sS -m 5 https://example.com" },

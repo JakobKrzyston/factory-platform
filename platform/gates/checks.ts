@@ -1,7 +1,7 @@
 /** Runs a repository's typecheck, lint and test scripts inside the OS sandbox. Exports runChecks, baseChecks,
  *  sandboxSettings and CHECK_NAMES. */
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -30,18 +30,19 @@ export function baseChecks(packageJson: string): Check[] {
   });
 }
 
-/** Builds the sandbox-runtime settings that confine a check to `dir`: no network, writes only in `dir`, and no reads
- *  of `denyRead` (the same paths the agent's own Bash sandbox denies). `dir`, the Node installation and srt's own
- *  package stay readable.
- *  Args: dir: the checkout the checks run in; denyRead: absolute paths code the agent wrote must not read.
+/** Builds the sandbox-runtime settings that confine a check to `dir`: no network, writes only in `dir` and `tmp`, and
+ *  no reads of `denyRead` (the same paths the agent's own Bash sandbox denies). `dir`, the Node installation and srt's
+ *  own package stay readable.
+ *  Args: dir: the checkout the checks run in; denyRead: absolute paths code the agent wrote must not read;
+ *    tmp: the checks' temporary directory.
  *  Returns: an object to write as srt's settings file. */
-export function sandboxSettings(dir: string, denyRead: string[]) {
+export function sandboxSettings(dir: string, denyRead: string[], tmp: string) {
   const nodeInstall = dirname(dirname(process.execPath));
   // On Linux srt runs its apply-seccomp binary from inside the sandbox. On a runner this repository sits under the
   // denied home directory, so without this every check exits 127 (#41).
   const srtPackage = dirname(dirname(realpathSync(SRT_CLI)));
   return {
-    filesystem: { denyRead, allowRead: [dir, nodeInstall, srtPackage], allowWrite: [dir], denyWrite: [] },
+    filesystem: { denyRead, allowRead: [dir, nodeInstall, srtPackage], allowWrite: [dir, tmp], denyWrite: [] },
     network: { allowedDomains: [], deniedDomains: [] },
   };
 }
@@ -54,14 +55,18 @@ export function sandboxSettings(dir: string, denyRead: string[]) {
 export function runChecks(dir: string, checks: Check[], denyRead: string[]): CheckResult[] {
   const settingsDir = mkdtempSync(join(tmpdir(), "gates-"));
   const settingsFile = join(settingsDir, "srt-settings.json");
-  writeFileSync(settingsFile, JSON.stringify(sandboxSettings(dir, denyRead)));
+  // srt points TMPDIR at CLAUDE_CODE_TMPDIR, or else at /tmp/claude, which only Claude Code creates and which the
+  // agent's own sandbox writes to. tsx keeps its cache there, so on a fresh Linux runner every test failed (#41).
+  const tmp = join(settingsDir, "tmp");
+  mkdirSync(tmp);
+  writeFileSync(settingsFile, JSON.stringify(sandboxSettings(dir, denyRead, tmp)));
   try {
     return checks.map(({ name, script }) => {
       const started = Date.now();
       const command = `PATH="$GATE_BIN:$PATH"; exec 2>&1\n${script}`;
       const run = spawnSync(process.execPath, [SRT_CLI, "--settings", settingsFile, "-c", command], {
         cwd: dir,
-        env: { ...process.env, GATE_BIN: join(dir, "node_modules/.bin") },
+        env: { ...process.env, GATE_BIN: join(dir, "node_modules/.bin"), CLAUDE_CODE_TMPDIR: tmp },
         encoding: "utf8",
         timeout: CHECK_TIMEOUT_MS,
         maxBuffer: 64 * 1024 * 1024,
