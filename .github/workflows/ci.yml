@@ -1,5 +1,6 @@
 # The required check on main (see .github/rulesets/main-green-checks.json).
-# TL-5 adds lint and test to this job; keep the job name `checks` or update the ruleset with it.
+# The same typecheck, lint and test scripts the factory's stop hook runs (platform/gates/).
+# Keep the job name `checks` or update the ruleset with it.
 name: CI
 on:
   pull_request:
@@ -20,5 +21,9 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - name: typecheck
         run: pnpm typecheck
+      - name: lint
+        run: pnpm lint
+      - name: test
+        run: pnpm test
       - name: PLAN.md matches docs/roadmap.ts
         run: pnpm plan && git diff --exit-code docs/PLAN.md

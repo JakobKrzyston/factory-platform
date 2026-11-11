@@ -13,12 +13,14 @@
     "plan": "tsx scripts/render-plan.ts",
     "tickets": "tsx scripts/create-issues.ts",
     "typecheck": "tsc",
+    "lint": "biome lint",
     "test": "tsx --test \"platform/**/*.test.ts\"",
     "runlog:migrate": "tsx --env-file-if-exists=.env.local platform/runlog/migrate.ts",
     "merge-gate": "tsx scripts/apply-rulesets.ts",
     "check-merge-gate": "tsx scripts/check-merge-gate.ts"
   },
   "devDependencies": {
+    "@biomejs/biome": "2.6.6",
     "@types/node": "^22.20.5",
     "tsx": "^4.23.15",
     "typescript": "^5.9.0"
@@ -28,6 +30,7 @@
     "url": "https://github.com/JakobKrzyston/factory-platform"
   },
   "dependencies": {
+    "@anthropic-ai/sandbox-runtime": "0.0.81",
     "postgres": "^4.1.0"
   }
 }
