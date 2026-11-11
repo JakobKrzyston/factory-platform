@@ -56,7 +56,7 @@ Before merge, without a runner (GitHub runs `issues` workflows only from the def
   - The new hook let a `QUESTION:` stop through without writing a gate line; TL-5's hook blocked the same stop with exit 2.
   - An ordinary stop with a failing check is still blocked.
   - Run against a fresh clone of this repository with its dependencies installed, the real stop hook passed `typecheck` and `lint`.
-  - `test` failed with `listen EPERM` on `tsx`'s IPC pipe: the checks' sandbox denies Unix sockets. Until that is fixed, factory runs here end at `needs-human`, not `in-review`.
+  - `test` failed with `listen EPERM` on `tsx`'s IPC pipe: the checks' sandbox denies Unix sockets. Until that is fixed (#41), factory runs here end at `needs-human`, not `in-review`.
 - Not yet checked: the workflow on a real runner (bubblewrap under the AppArmor change, the App's commit identity, the App token's permissions for the label calls) and the three acceptance criteria end to end.
 
 ## What the numbers said

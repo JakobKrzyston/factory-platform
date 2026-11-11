@@ -57,7 +57,7 @@ How it is built (`platform/gates/`):
 
 The gate stops an agent from handing in work that fails. It does not stop an agent that sets out to fool it: editing a test until it passes shows up in the diff, but a fake `node_modules/.bin/node` (now sandboxed, but still able to fake a pass) is git-ignored and would not. Catching that is review's job (TL-7) or a later gate. Known gaps, left for later stages:
 - TL-6 installs the clone's dependencies before the agent starts, but only from a pnpm lockfile, so repositories using another package manager still fail any check that needs a dependency.
-- `tsx` cannot run in the checks' sandbox: it opens a Unix socket for IPC, and the sandbox's network rule denies it. This repository's own `test` script uses `tsx`, so the factory cannot pass the gate here yet.
+- `tsx` cannot run in the checks' sandbox: it opens a Unix socket for IPC, and the sandbox's network rule denies it. This repository's own `test` script uses `tsx`, so the factory cannot pass the gate here yet (#41).
 - Files the checks write into the clone end up in the PR.
 - When the time limit kills `claude`, a running hook is not killed with it.
 - A `node` reached through a version-manager shim under the home directory cannot run in the sandbox.
