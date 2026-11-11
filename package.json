@@ -16,6 +16,7 @@
     "lint": "biome lint",
     "test": "node --import tsx --test \"platform/**/*.test.ts\"",
     "runlog:migrate": "tsx --env-file-if-exists=.env.local platform/runlog/migrate.ts",
+    "dashboard": "tsx --env-file-if-exists=.env.local platform/dashboard/dashboard.ts",
     "merge-gate": "tsx scripts/apply-rulesets.ts",
     "check-merge-gate": "tsx scripts/check-merge-gate.ts",
     "queue": "tsx platform/queue/queue.ts",

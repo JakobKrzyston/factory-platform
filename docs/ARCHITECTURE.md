@@ -92,6 +92,14 @@ The writer is `platform/runlog/runlog.ts`, called by the script and the workflow
 
 Tested by: TL-11, TL-12 (`docs/notes/12-run-log-rows.md`). The dashboard (TL-13) only reads this table.
 
+### The dashboard is a static page rendered from the run log (TL-13)
+
+`pnpm dashboard` reads the `runs` table and writes one self-contained HTML file: inline SVG charts and a table, with no scripts, no chart library and no server. A hosted app would need its own deploy, its own read access to Neon, and Vercel authentication. That is more moving parts than four weekly charts need, and none of it would change what the numbers say. A file can be opened locally, attached to a stage note, or published by any static host later.
+
+The page groups ended production runs by factory and by the UTC week they started, and computes every metric in TypeScript rather than SQL. Week arithmetic differs between SQLite and Postgres, and the run log's rule is one query that runs on both. The same rows give byte-identical pages from either database. What each metric counts is defined in `platform/dashboard/README.md`.
+
+Tested by: TL-13 (`docs/notes/13-cost-rework-dashboard.md`). Revisit when someone other than the owner needs to see it without running a command: then a scheduled workflow renders it from Neon and publishes it behind authentication.
+
 ### Benchmark from the repository's own history (TL-14)
 
 The benchmark is closed issues from this repository with their merged PRs and a written expected outcome. It grows as the project does. A factory change is judged by replaying the benchmark on the old and new definition, scored by the files under `scorers/`.
