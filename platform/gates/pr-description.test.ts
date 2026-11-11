@@ -71,8 +71,10 @@ test("headings match by prefix and case", () => {
 });
 
 test("the CLI prints one problem per line and nothing for a passing body", () => {
+  // node --import tsx, not tsx's CLI: the CLI opens a Unix socket, which the gate's sandbox denies (#41).
   const run = (input: string) =>
-    spawnSync(join(ROOT, "node_modules/.bin/tsx"), [join(ROOT, "platform/gates/pr-description.ts")], {
+    spawnSync(process.execPath, ["--import", "tsx", join(ROOT, "platform/gates/pr-description.ts")], {
+      cwd: ROOT,
       input,
       encoding: "utf8",
     });
