@@ -72,6 +72,10 @@ async function main(): Promise<void> {
   const jwt = appJwt(appId, readFileSync(keyPath, "utf8"));
   let failed = false;
 
+  // The factory App signs the same way, so name the App before judging anything (note 25).
+  const app = await github<{ slug: string; id: number }>(jwt, "app");
+  console.log(`app      ${app.slug} (${app.id}); this should be Throughline's App`);
+
   // Newest first. GitHub keeps about three days of deliveries, so a quiet repository can have none.
   const deliveries = await github<Delivery[]>(jwt, "app/hook/deliveries?per_page=10");
   for (const d of deliveries) {

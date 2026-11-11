@@ -12,28 +12,24 @@ The probe cannot catch a rotated webhook secret, because a probe signed with the
 
 ## Happened
 
-The first live run, on 2026-11-11 from a laptop with the App's credentials in `.env.local`, exited 1 with both checks failed. It had found a real outage that nobody had noticed.
+**The first run checked the wrong App.** It ran on 2026-11-11 from a laptop and exited 1, with both checks failed. But `THROUGHLINE_APP_ID` in `.env.local` was 5688742, the factory App (slug `factory-application`, formerly `throughline-factory-2`, note 10), not Throughline's. That App still had a webhook copied from Throughline's App, with an 8-character bypass. All 35 of its deliveries since it was created (2026-11-09T23:08Z) got 401, and Vercel refused the probe. Both verdicts were true of the App that was checked. Throughline's own App was not checked at all, so this run says nothing about the reconciliation link.
 
-- **Every listed delivery got 401.** All ten were refused, from `issues.labeled` at 2026-11-10T04:10:06Z through `pull_request` opened, edited, synchronize and closed, and `issues.opened`, to the newest, `installation.new_permissions_accepted` at 2026-11-10T18:40:16Z.
-- **The probe was refused by Vercel.** The URL in the App's settings has an `x-vercel-protection-bypass` parameter, but Vercel answered 401 before Throughline ran. A bypass is present and Vercel no longer accepts it. The likely cause is that the bypass was replaced (note 02: "One bypass secret appeared in a pasted delivery response and was replaced") but the App's webhook URL was never updated. That is unconfirmed.
+The check had no way to show it. Both Apps sign the same way, and nothing in the output named the App. It now starts by printing the slug and ID from `GET /app`, so a run against the wrong App is obvious from the first line. The factory App's leftover webhook is a separate matter. It delivers to nothing useful and is left to the owner.
 
-So the PR reconciliation has been down since at least 04:10 UTC on 2026-11-10. That is the oldest delivery in the ten shown, so the outage may have started earlier. Repairing it is configuration in Vercel and the App's settings, outside this stage. Missed deliveries can be redelivered for about three days.
+The run does give one piece of evidence about the check itself. The ten deliveries it listed ran from 2026-11-10T04:10:06Z to 18:40:16Z, and the App had 35 in all, starting at 2026-11-09T23:08Z. A list in oldest-first order would have started at 23:08Z on 2026-11-09, so this one was newest first, as the check assumes.
 
-One thing is still open. Nine pull requests merged after the newest listed delivery: #38 at 18:54 UTC on 2026-11-10, and the last, #43, at 14:47 UTC on 2026-11-11. None of their deliveries is in the list. Either the App stopped sending after the permission change at 18:40, or GitHub does not return deliveries newest first, which this check assumes. If it is the second, the check is judging an older page of deliveries, not the latest one. The App's **Advanced** tab settles it. If it also shows nothing newer than 18:40:16Z, the App stopped sending and the order holds.
-
-The scheduled workflow has not run yet. It needs the `throughline` environment, which is not set up, and GitHub only schedules or dispatches workflows that are on `main`.
+TODO: the run against Throughline's App. On a working link, its newest delivery should be no older than the last merge, #43, at 2026-11-11T14:47:57Z. Also the first scheduled run, which needs the `throughline` environment and the workflow on `main`.
 
 ## What the numbers said
 
-| Measure | Value |
+| Measure | First run (factory App, by mistake) |
 | --- | --- |
-| Deliveries listed | 10, all 401 |
-| Newest delivery listed | 2026-11-10T18:40:16Z, `installation.new_permissions_accepted` |
-| Oldest delivery listed | 2026-11-10T04:10:06Z, `issues.labeled` |
-| Probe | 401 from Vercel protection, with a bypass in the URL |
+| App checked | 5688742, `factory-application` |
+| Deliveries listed | 10 of 35, all 401 |
+| Listed span | 2026-11-10T04:10:06Z to 18:40:16Z |
+| Probe | 401 from Vercel protection, bypass present |
 | Exit code | 1 |
-| Merges after the newest listed delivery | 9 (#28, #29, #31, #36, #38, #39, #40, #42, #43), none of them in the list |
-| Outage, before this check | At least 34 hours unnoticed (04:10 UTC on 2026-11-10 to a run after 14:47 UTC on 2026-11-11) |
-| Time to find it with the check | One command |
 
-Note 02 needed 67 minutes and GitHub's Recent Deliveries page to see four failures. One command found this outage, and it named the layer that refused the request.
+TODO: the same rows for Throughline's App.
+
+The first lesson came before any number about the webhook. A health check has to say what it checked. Otherwise a correct result about the wrong App reads as an outage.

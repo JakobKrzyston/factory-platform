@@ -8,7 +8,7 @@ Checks that a link between this repository and another system still works. They 
 pnpm check-webhook
 ```
 
-Acting as Throughline's GitHub App, it:
+Acting as Throughline's GitHub App, it prints that App's slug and ID first. The factory App's credentials work too and check the wrong webhook, so read that line. Then it:
 
 1. Prints the App's ten most recent webhook deliveries (time, status code, event) and fails if the latest did not get a 2xx. A repository with no deliveries in GitHub's three-day history passes this step.
 2. Reads the webhook URL from the App's settings, the exact one GitHub delivers to, and POSTs `{}` to it unsigned. Throughline answers a missing signature with 401 `{"error":"Bad signature"}`, which proves the request got past Vercel protection. Vercel's own 401 page, or a redirect to sign-in, means the bypass in the URL is missing, wrong or revoked. The probe never reaches Throughline's sync code, so it changes nothing.
