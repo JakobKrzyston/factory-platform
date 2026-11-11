@@ -46,6 +46,10 @@ export function verdict(results: CheckResult[], blocksSoFar: number): { block: b
 // realpath: import.meta.url has symlinks resolved and argv[1] does not.
 if (import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href) {
   const { checkout, package_json, log, deny_read }: GateConfig = JSON.parse(readFileSync(process.argv[2], "utf8"));
+  // Claude Code passes the hook its input on stdin. A run that stops to ask a question opens no pull request
+  // (run-issue.sh exits 3), so the checks have nothing to protect and would only keep the agent from asking.
+  const input: { last_assistant_message?: string } = JSON.parse(readFileSync(0, "utf8") || "{}");
+  if (input.last_assistant_message?.startsWith("QUESTION:")) process.exit(0);
   const results = runChecks(checkout, baseChecks(package_json), deny_read);
   const blocksSoFar = existsSync(log)
     ? readFileSync(log, "utf8").split("\n").filter((line) => line && !JSON.parse(line).passed).length

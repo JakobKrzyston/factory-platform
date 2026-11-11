@@ -62,6 +62,17 @@ test(`the hook stops blocking after ${MAX_BLOCKS} blocked attempts`, () => {
   assert.equal(verdict([result("test", false)], MAX_BLOCKS).block, false);
 });
 
+test("an agent stopping to ask a question is let through without running the checks", () => {
+  const dir = scratch();
+  const run = scratch({ "base-package.json": JSON.stringify({ scripts: { test: "exit 1" } }) });
+  const config: GateConfig = { checkout: dir, package_json: join(run, "base-package.json"), log: join(run, "gates.jsonl"), deny_read: [] };
+  writeFileSync(join(run, "gate.json"), JSON.stringify(config));
+  const input = JSON.stringify({ hook_event_name: "Stop", last_assistant_message: "QUESTION: Zero words, or an error?" });
+  const hook = spawnSync("node_modules/.bin/tsx", ["platform/gates/stop-hook.ts", join(run, "gate.json")], { cwd: ROOT, encoding: "utf8", input });
+  assert.equal(hook.status, 0, hook.stderr);
+  assert.equal(existsSync(config.log), false);
+});
+
 test("checks are the typecheck, lint and test scripts of the copied package.json, in that order", () => {
   const dir = scratch({ "package.json": JSON.stringify({ scripts: { test: "node --test", lint: "biome lint", build: "tsc" } }) });
   assert.deepEqual(baseChecks(join(dir, "package.json")), [

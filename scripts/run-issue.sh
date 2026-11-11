@@ -7,6 +7,9 @@
 # sandboxed shell commands; it cannot reach GitHub. A stop hook refuses to let it
 # finish while the repository's typecheck, lint or test script fails. This script
 # commits, pushes and opens the PR. Each run is recorded under .runlog/runs/<run-id>/.
+#
+# Exit status: 0 with the PR's URL on stdout; 3 with the agent's question on
+# stdout when it stopped to ask one; anything else means no PR.
 set -euo pipefail
 
 MODEL=sonnet
@@ -44,19 +47,39 @@ STAMP=$(date -u +%Y%m%dT%H%M%SZ)
 RUN_ID=$STAMP-${REPO//\//-}-$NUMBER
 RUN_DIR=$ROOT/.runlog/runs/$RUN_ID
 WORKDIR=$(mktemp -d)/repo
+# The clone's git metadata lives outside the clone, where the agent cannot write,
+# so it can neither commit nor plant hooks or config that this script's git
+# commands, which run unsandboxed with GitHub credentials, would execute.
+GIT_DIR_OUTSIDE=$(mktemp -d)/git
+repo_git() { git -C "$WORKDIR" --git-dir="$GIT_DIR_OUTSIDE" --work-tree="$WORKDIR" "$@"; }
 BRANCH=factory/issue-$NUMBER-$STAMP
 mkdir -p "$RUN_DIR"
 
-gh repo clone "$REPO" "$WORKDIR" -- --quiet
-BASE=$(git -C "$WORKDIR" symbolic-ref --short HEAD)
-git -C "$WORKDIR" switch --quiet -c "$BRANCH"
+gh repo clone "$REPO" "$WORKDIR" -- --quiet --separate-git-dir "$GIT_DIR_OUTSIDE"
+BASE=$(repo_git symbolic-ref --short HEAD)
+repo_git switch --quiet -c "$BRANCH"
 ISSUE=$(gh issue view "$ISSUE_URL" --json title,body)
 TITLE=$(jq -r .title <<<"$ISSUE")
+# The body is untrusted whoever wrote it; the confinement below is what makes that safe.
 BODY=$(jq -r .body <<<"$ISSUE")
+# Comments only from people who could have queued the issue themselves, where a
+# human answers the agent's question, and from the factory's own App
+# (FACTORY_BOT, e.g. my-app[bot]), which posted the question. Nobody else's.
+COMMENTS=$(gh api --paginate "repos/$REPO/issues/$NUMBER/comments" --jq '.[]' \
+  | jq -rs --arg bot "${FACTORY_BOT:-}" '[.[]
+      | select((.author_association | IN("OWNER", "MEMBER", "COLLABORATOR")) or .user.login == $bot)
+      | "\(.user.login) commented:\n\n\(.body)"] | join("\n\n---\n\n")')
 
 # The gate runs the scripts from this copy, out of the agent's reach, so editing
 # package.json or committing in the clone cannot change what it runs.
 if [[ -f $WORKDIR/package.json ]]; then cp "$WORKDIR/package.json" "$RUN_DIR/base-package.json"; fi
+# The checks run the clone's own tools (tsc, a linter, a test runner) with no
+# network, so install the base branch's dependencies now. Only pnpm lockfiles
+# for now. Lifecycle scripts stay off, and the install gets only PATH and HOME,
+# so no dependency's code runs with this script's credentials.
+if [[ -f $WORKDIR/pnpm-lock.yaml ]]; then
+  (cd "$WORKDIR" && env -i PATH="$PATH" HOME="$HOME" pnpm install --frozen-lockfile --ignore-scripts --silent)
+fi
 jq -n --arg checkout "$WORKDIR" --arg run_dir "$RUN_DIR" --arg home "$HOME" --arg key_dir "$KEY_DIR" \
   '{checkout: $checkout, package_json: "\($run_dir)/base-package.json", log: "\($run_dir)/gates.jsonl",
     deny_read: [$home, $key_dir]}' > "$RUN_DIR/gate.json"
@@ -72,6 +95,7 @@ cat > "$RUN_DIR/settings.json" <<JSON
   "permissions": { "deny": ["Read(~/**)", "Read(/$KEY_DIR/**)"] },
   "sandbox": {
     "enabled": true,
+    "failIfUnavailable": true,
     "autoAllowBashIfSandboxed": true,
     "allowUnsandboxedCommands": false
   },
@@ -90,11 +114,23 @@ PROMPT="Resolve GitHub issue #$NUMBER in this repository.
 Title: $TITLE
 
 $BODY"
+if [[ -n $COMMENTS ]]; then
+  PROMPT+="
 
-SYSTEM="You are running unattended: nobody will answer questions or approve anything. \
+Comments from the maintainers and the factory:
+
+$COMMENTS"
+fi
+
+# Passed on stdin: Linux limits a single argument to 128 KiB, and comments can be long.
+printf '%s\n' "$PROMPT" > "$RUN_DIR/prompt.md"
+
+SYSTEM="You are running unattended: nobody will answer you during the run or approve anything. \
 Work only in the current directory. Do not commit; the script that started you commits and opens the pull request. \
 If the project has tests, run them before you finish. \
 When you try to finish, a gate runs the project's typecheck, lint and test scripts; while any fails, it tells you which and you keep working. \
+If you cannot finish without a decision only a person can make, do not guess: stop, and make your final message \
+start with QUESTION: followed by the one question you need answered. Asking discards your changes. \
 End with a short summary for the pull request description: what changed, how you checked it, and anything left undone."
 
 jq -n \
@@ -117,7 +153,7 @@ echo "run $RUN_ID: agent working in $WORKDIR (limit ${TIME_LIMIT_SECONDS}s)" >&2
 STATUS=0
 (cd "$WORKDIR" && perl -e 'alarm shift; exec @ARGV' "$TIME_LIMIT_SECONDS" \
   env -i PATH="$PATH" HOME="$HOME" \
-  claude -p "$PROMPT" \
+  claude -p \
     --setting-sources "" --strict-mcp-config --no-session-persistence \
     --model "$MODEL" --max-budget-usd "$BUDGET_USD" \
     --tools "$TOOLS" --allowedTools "${ALLOWED_TOOLS[@]}" \
@@ -125,7 +161,7 @@ STATUS=0
     --settings "$RUN_DIR/settings.json" \
     --append-system-prompt "$SYSTEM" \
     --output-format stream-json --verbose \
-  < /dev/null > "$RUN_DIR/transcript.jsonl") || STATUS=$?
+  < "$RUN_DIR/prompt.md" > "$RUN_DIR/transcript.jsonl") || STATUS=$?
 
 # A run killed by the time limit can leave a truncated last line, so parse leniently.
 RESULT=$(jq -nR '[inputs | fromjson? | select(.type == "result")] | last // {}' "$RUN_DIR/transcript.jsonl")
@@ -134,10 +170,10 @@ MODEL_ID=$(jq -nR '[inputs | fromjson? | select(.type == "system" and .subtype =
 # line is the state it finished in. No line means the gate never ran.
 GATES='[]'
 if [[ -f $RUN_DIR/gates.jsonl ]]; then GATES=$(jq -s . "$RUN_DIR/gates.jsonl"); fi
-CHANGED=$(git -C "$WORKDIR" status --porcelain | wc -l | tr -d ' ')
+CHANGED=$(repo_git status --porcelain | wc -l | tr -d ' ')
 # A pushed branch runs its own workflows with the repository's secrets, so the
 # agent may not change them.
-WORKFLOWS_CHANGED=$(git -C "$WORKDIR" status --porcelain -- .github | wc -l | tr -d ' ')
+WORKFLOWS_CHANGED=$(repo_git status --porcelain -- .github | wc -l | tr -d ' ')
 jq \
   --argjson exit_code "$STATUS" --argjson result "$RESULT" --argjson model_id "$MODEL_ID" \
   --argjson files_changed "$CHANGED" --argjson workflows_changed "$WORKFLOWS_CHANGED" --argjson gates "$GATES" \
@@ -151,6 +187,16 @@ jq \
         cost_usd: $result.total_cost_usd, usage: $result.usage,
         permission_denials: $result.permission_denials}' \
   "$RUN_DIR/run.json" > "$RUN_DIR/run.json.tmp" && mv "$RUN_DIR/run.json.tmp" "$RUN_DIR/run.json"
+
+SUMMARY=$(jq -r '.result // ""' <<<"$RESULT")
+if [[ $STATUS -eq 0 && $SUMMARY == QUESTION:* ]]; then
+  QUESTION=$(sed '1s/^QUESTION:[[:space:]]*//' <<<"$SUMMARY")
+  jq --arg question "$QUESTION" '. + {question: $question}' "$RUN_DIR/run.json" > "$RUN_DIR/run.json.tmp" \
+    && mv "$RUN_DIR/run.json.tmp" "$RUN_DIR/run.json"
+  echo "run $RUN_ID: the agent asked a question, so no pull request; see $RUN_DIR" >&2
+  printf '%s\n' "$QUESTION"
+  exit 3
+fi
 
 if [[ $STATUS -ne 0 || $(jq -r '.result_subtype' "$RUN_DIR/run.json") != success \
       || $(jq -r '.is_error' "$RUN_DIR/run.json") != false \
@@ -171,9 +217,9 @@ $(jq -r '"| Run | `\(.run_id)` |\n| --- | --- |\n| Model | \(.model_id) |\n| Too
 
 Closes #$NUMBER"
 
-git -C "$WORKDIR" add -A
-git -C "$WORKDIR" commit --quiet -m "Resolve #$NUMBER: $TITLE"
-git -C "$WORKDIR" push --quiet -u origin "$BRANCH"
+repo_git add -A
+repo_git commit --quiet -m "Resolve #$NUMBER: $TITLE"
+repo_git push --quiet -u origin "$BRANCH"
 
 PR_URL=$(gh pr create --repo "$REPO" --draft --base "$BASE" --head "$BRANCH" \
   --title "$TITLE" --body "$PR_BODY")
