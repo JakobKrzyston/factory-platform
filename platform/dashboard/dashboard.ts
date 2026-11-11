@@ -3,7 +3,7 @@
  *  weeklyMetrics and renderDashboard. Postgres when DATABASE_URL is set, otherwise SQLite in .runlog/.
  *
  *  tsx platform/dashboard/dashboard.ts [out.html]        default .runlog/dashboard.html */
-import { mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -64,8 +64,10 @@ export function weekOf(date: Date): string {
 export type Week = {
   week: string;
   runs: number;
+  prs: number;
+  totalCost: number | null;
   costPerPr: number | null;
-  medianMinutesByRole: Record<string, number>;
+  medianMinutesByRole: Map<string, number>;
   checksPassRate: number | null;
   reviewPassRate: number | null;
   reworkRate: number | null;
@@ -73,8 +75,6 @@ export type Week = {
 
 /** The dashboard's data: a shared, gap-free week axis and each factory's numbers on it. */
 export type Dashboard = { weeks: string[]; roles: string[]; factories: Map<string, Week[]> };
-
-const sum = (xs: number[]) => xs.reduce((a, b) => a + b, 0);
 
 function median(xs: number[]): number {
   const s = [...xs].sort((a, b) => a - b);
@@ -94,16 +94,21 @@ function measureWeek(week: string, runs: Run[]): Week {
   // rework is set on every run of a PR, so one value per PR.
   const reworkByPr = new Map(runs.filter((r) => r.pr !== null && r.rework !== null).map((r) => [prKey(r), r.rework]));
 
-  const medianMinutesByRole: Record<string, number> = {};
+  const totalCost = costs.length ? costs.reduce((a, b) => a + b, 0) : null;
+
+  const medianMinutesByRole = new Map<string, number>();
   for (const role of new Set(runs.map((r) => r.role))) {
     const walls = runs.flatMap((r) => (r.role === role && r.wall_seconds !== null ? [r.wall_seconds] : []));
-    if (walls.length) medianMinutesByRole[role] = median(walls) / 60;
+    if (walls.length) medianMinutesByRole.set(role, median(walls) / 60);
   }
 
   return {
     week,
     runs: runs.length,
-    costPerPr: prs.size && costs.length ? sum(costs) / prs.size : null,
+    prs: prs.size,
+    totalCost,
+    // A week that spent money but produced no PR has no cost per PR; its spend is still in totalCost.
+    costPerPr: prs.size && totalCost !== null ? totalCost / prs.size : null,
     medianMinutesByRole,
     checksPassRate: rate(runs.map((r) => r.checks_passed)),
     // A run with review_findings is a review; it passes when it found nothing.
@@ -121,8 +126,8 @@ export function weeklyMetrics(runs: Run[]): Dashboard {
   if (runs.length === 0) return { weeks: [], roles: [], factories: new Map() };
   const starts = runs.map((r) => r.started_at.getTime());
   const weeks: string[] = [];
-  const last = weekOf(new Date(Math.max(...starts)));
-  for (let d = new Date(weekOf(new Date(Math.min(...starts)))); ; d.setUTCDate(d.getUTCDate() + 7)) {
+  const last = weekOf(new Date(starts.reduce((a, b) => Math.max(a, b))));
+  for (let d = new Date(weekOf(new Date(starts.reduce((a, b) => Math.min(a, b))))); ; d.setUTCDate(d.getUTCDate() + 7)) {
     weeks.push(weekOf(d));
     if (weeks.at(-1) === last) break;
   }
@@ -210,13 +215,13 @@ function lineChart(title: string, weeks: string[], series: Series[], format: (v:
 
 function table(weeks: Week[], roles: string[]): string {
   const cell = (v: number | null | undefined, format: (v: number) => string) => `<td>${v == null ? "–" : format(v)}</td>`;
-  const head = ["Week", "Runs", "Cost per PR", ...roles.map((r) => `${escapeHtml(r)} median`), "Checks pass", "Review pass", "Rework"];
+  const head = ["Week", "Runs", "PRs", "Total cost", "Cost per PR", ...roles.map((r) => `${escapeHtml(r)} median`), "Checks pass", "Review pass", "Rework"];
   const rows = weeks
     .filter((w) => w.runs > 0)
     .map(
       (w) =>
-        `<tr><td>${w.week}</td><td>${w.runs}</td>${cell(w.costPerPr, dollars)}` +
-        roles.map((r) => cell(w.medianMinutesByRole[r], minutes)).join("") +
+        `<tr><td>${w.week}</td><td>${w.runs}</td><td>${w.prs}</td>${cell(w.totalCost, dollars)}${cell(w.costPerPr, dollars)}` +
+        roles.map((r) => cell(w.medianMinutesByRole.get(r), minutes)).join("") +
         `${cell(w.checksPassRate, percent)}${cell(w.reviewPassRate, percent)}${cell(w.reworkRate, percent)}</tr>`,
     )
     .join("");
@@ -233,13 +238,13 @@ export function renderDashboard(dashboard: Dashboard, generatedAt: Date): string
   const sections = [...dashboard.factories]
     .map(([factory, data]) => {
       const pick = (f: (w: Week) => number | null) => data.map(f);
-      const ownRoles = roles.filter((r) => data.some((w) => r in w.medianMinutesByRole));
+      const ownRoles = roles.filter((r) => data.some((w) => w.medianMinutesByRole.has(r)));
       return `<section><h2>${escapeHtml(factory)} factory</h2><div class="grid">
 ${lineChart("Cost per PR", weeks, [{ name: "Cost per PR", slot: 1, values: pick((w) => w.costPerPr) }], dollars)}
 ${lineChart(
   "Time per stage (median)",
   weeks,
-  ownRoles.map((r) => ({ name: r, slot: slot(r), values: pick((w) => w.medianMinutesByRole[r] ?? null) })),
+  ownRoles.map((r) => ({ name: r, slot: slot(r), values: pick((w) => w.medianMinutesByRole.get(r) ?? null) })),
   minutes,
 )}
 ${lineChart(
@@ -298,7 +303,11 @@ ${sections || `<p class="empty">No finished runs in the run log yet.</p>`}
 
 if (import.meta.url === pathToFileURL(process.argv[1]).href) {
   const out = process.argv[2] ?? join(dirname(DEFAULT_SQLITE_PATH), "dashboard.html");
-  const db = await openRunLog();
+  if (!process.env.DATABASE_URL && !existsSync(DEFAULT_SQLITE_PATH)) {
+    console.error(`no run log at ${DEFAULT_SQLITE_PATH}: run an issue first, or set DATABASE_URL`);
+    process.exit(1);
+  }
+  const db = await openRunLog(process.env.DATABASE_URL, DEFAULT_SQLITE_PATH, true);
   try {
     const html = renderDashboard(weeklyMetrics(await readRuns(db)), new Date());
     mkdirSync(dirname(out), { recursive: true });

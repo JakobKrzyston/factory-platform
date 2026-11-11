@@ -1,6 +1,6 @@
 # Dashboard
 
-One HTML page that shows, for each factory and each week, what a pull request cost, how long each stage took, how often each gate passed, and how often a human had to change the work. It reads the run log ([`../runlog/README.md`](../runlog/README.md)) and writes nothing to it.
+One HTML page that shows, for each factory and each week, what a pull request cost, how long each stage took, how often each gate passed, and how often a human had to change the work. It reads the run log ([`../runlog/README.md`](../runlog/README.md)) and writes nothing to it: it opens it read-only and applies no migrations, so running it against the cloud database cannot change the schema.
 
 ```sh
 pnpm dashboard                  # .runlog/dashboard.html from SQLite, or from Postgres when DATABASE_URL is set
@@ -15,7 +15,7 @@ Rows are production runs that have ended: `benchmark = false` and `status <> 'ru
 
 | Chart | Definition | Columns |
 | --- | --- | --- |
-| Cost per PR | The week's total `cost_usd` over the distinct PRs the week's runs produced or reviewed. Failed runs that opened no PR still count, because a shipped PR has to pay for the attempts that did not ship. Runs killed before Claude Code reported a cost have a null `cost_usd`, so the total is a lower bound. | `cost_usd`, `repo`, `pr` |
+| Cost per PR | The week's total `cost_usd` over the distinct PRs the week's runs produced or reviewed. Failed runs that opened no PR still count, because a shipped PR has to pay for the attempts that did not ship. A week that spent money and produced no PR has no cost per PR, so the chart has a gap there; the table's **Total cost** and **PRs** columns show what it spent. Runs killed before Claude Code reported a cost have a null `cost_usd`, so the total is a lower bound. | `cost_usd`, `repo`, `pr` |
 | Time per stage | The median `wall_seconds` of each role's runs, in minutes. One line per role. A role keeps its colour across every factory. | `role`, `wall_seconds` |
 | Pass rate at each gate | **Checks**: the share of runs that ran gates whose gates all passed when the run ended. **Review**: the share of reviews that raised no findings. A run with `review_findings` set is a review, whatever its role is called. | `checks_passed`, `review_findings` |
 | Rework rate | The share of merged PRs that a human changed between hand-off and merge. Counted per PR, not per run, since `rework` is set on every run of a PR. | `rework`, `repo`, `pr` |

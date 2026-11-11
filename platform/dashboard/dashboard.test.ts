@@ -1,6 +1,6 @@
 /** Tests the dashboard's reading, weekly metrics and page against throwaway SQLite files. Run: pnpm test */
 import assert from "node:assert/strict";
-import { mkdtempSync } from "node:fs";
+import { existsSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -90,20 +90,28 @@ test("weekly metrics: cost per PR, median time per role, gate pass rates and rew
     { id: "4", started_at: "2026-11-11T09:00:00Z", status: "failed", cost_usd: 2, wall_seconds: 120 },
     { id: "5", role: "reviewer", started_at: "2026-11-11T10:00:00Z", pr: 2, cost_usd: 0.5, wall_seconds: 60, review_findings: 0 },
     { id: "6", role: "reviewer", started_at: "2026-11-12T10:00:00Z", pr: 1, cost_usd: 0.5, wall_seconds: 180, review_findings: 3 },
-    // Nothing in the week of Nov 16. Week of Nov 23: one run whose cost is unknown.
+    // Nothing in the week of Nov 16. Week of Nov 23: one run whose cost is unknown. Week of Nov 30: money spent
+    // and no PR, which has no cost per PR but must not hide the spend.
     { id: "7", started_at: "2026-11-23T09:00:00Z", pr: 3, wall_seconds: 60, checks_passed: true },
+    { id: "8", started_at: "2026-11-30T09:00:00Z", status: "failed", cost_usd: 4, wall_seconds: 60 },
   ]);
   const dashboard = weeklyMetrics(await readRuns(db));
   await db.close();
 
-  assert.deepEqual(dashboard.weeks, ["2026-11-09", "2026-11-16", "2026-11-23"]);
+  assert.deepEqual(dashboard.weeks, ["2026-11-09", "2026-11-16", "2026-11-23", "2026-11-30"]);
   assert.deepEqual(dashboard.roles, ["implementer", "reviewer"]);
-  const [first, empty, third] = dashboard.factories.get("code") ?? [];
+  const [first, empty, third, noPr] = dashboard.factories.get("code") ?? [];
   assert.deepEqual(first, {
     week: "2026-11-09",
     runs: 6,
-    costPerPr: 3.5, // $7 over 2 PRs
-    medianMinutesByRole: { implementer: 7.5, reviewer: 2 }, // medians of 120, 300, 600, 900 s and of 60, 180 s
+    prs: 2,
+    totalCost: 7,
+    costPerPr: 3.5,
+    // Medians of 120, 300, 600 and 900 s, and of 60 and 180 s.
+    medianMinutesByRole: new Map([
+      ["implementer", 7.5],
+      ["reviewer", 2],
+    ]),
     checksPassRate: 2 / 3,
     reviewPassRate: 0.5,
     reworkRate: 0.5, // PR 1 of PRs 1 and 2, though PR 1 has two runs
@@ -111,14 +119,17 @@ test("weekly metrics: cost per PR, median time per role, gate pass rates and rew
   assert.deepEqual(empty, {
     week: "2026-11-16",
     runs: 0,
+    prs: 0,
+    totalCost: null,
     costPerPr: null,
-    medianMinutesByRole: {},
+    medianMinutesByRole: new Map(),
     checksPassRate: null,
     reviewPassRate: null,
     reworkRate: null,
   });
   assert.equal(third.costPerPr, null);
   assert.equal(third.reworkRate, null);
+  assert.deepEqual([noPr.prs, noPr.totalCost, noPr.costPerPr], [0, 4, null]);
 });
 
 test("the page has a section per factory, keeps each role's colour, and escapes names", () => {
@@ -145,6 +156,12 @@ test("the page has a section per factory, keeps each role's colour, and escapes 
   const reviewerDots = html.match(/reviewer, week of Nov 9: 1\.0 min<\/title><circle class="hit" [^>]+><circle class="dot" [^>]+var\(--s2\)/g);
   assert.equal(reviewerDots?.length, 2);
   assert.match(html, /Generated 2026-11-11 12:00 UTC/);
+});
+
+test("a read-only open neither migrates nor creates a missing SQLite file", async () => {
+  const path = join(mkdtempSync(join(tmpdir(), "dashboard-")), "runlog.db");
+  await assert.rejects(openRunLog("", path, true));
+  assert.equal(existsSync(path), false);
 });
 
 test("an empty run log renders a page that says so", () => {
