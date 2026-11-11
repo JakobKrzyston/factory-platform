@@ -77,6 +77,7 @@ export const OUTCOMES: Outcome[] = [
         workType: "feature",
         team: "agents",
         target: "2027-Q1",
+        status: "done",
         userVisible: true,
         productNote: "Agents report their own progress to the roadmap.",
         acceptance: [
@@ -102,6 +103,7 @@ export const OUTCOMES: Outcome[] = [
         workType: "infrastructure",
         team: "agents",
         target: "2026-Q4",
+        status: "done",
         acceptance: [
           "`scripts/run-issue.sh <issue>` opens a draft PR on a sample repository with no interactive prompts.",
           "The run records what the agent could see and do (allowed tools, working directory, time limit).",
@@ -116,6 +118,7 @@ export const OUTCOMES: Outcome[] = [
         workType: "infrastructure",
         team: "platform",
         target: "2026-Q4",
+        status: "done",
         acceptance: [
           "A stop hook blocks the agent from ending its turn while `typecheck`, `lint` or `test` fail.",
           "The hook output names the failing check so the agent can act on it.",
@@ -130,6 +133,7 @@ export const OUTCOMES: Outcome[] = [
         workType: "feature",
         team: "platform",
         target: "2026-Q4",
+        status: "done",
         userVisible: true,
         productNote: "Work is requested by adding a label; the factory reports back on the issue.",
         acceptance: [
@@ -188,6 +192,7 @@ export const OUTCOMES: Outcome[] = [
         workType: "security",
         team: "platform",
         target: "2026-Q4",
+        status: "done",
         acceptance: [
           "The factory's GitHub token cannot merge or approve its own PRs.",
           "Branch protection on `main` requires one human review and green checks.",
@@ -211,6 +216,7 @@ export const OUTCOMES: Outcome[] = [
         workType: "infrastructure",
         team: "measurement",
         target: "2027-Q1",
+        status: "done",
         acceptance: [
           "Schema and migration committed with a one-page description of each column.",
           "A run can be reconstructed from its row and the linked PR.",
