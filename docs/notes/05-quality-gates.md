@@ -45,3 +45,18 @@ Model `claude-sonnet-5-5`, Claude Code 2.1.322. Every check took 0.2 s.
 Verified at hand-in went from one of four to five of five, the same as the runs before the review fixes. The gate did not change what the agents do. Two of the four baseline issues still lost the shell after one refusal and never ran the tests, as in TL-4. Their summaries still tell a human the change is "untested" and to "run `npm test`", because the agent writes its summary before the final check runs. The gate had run those tests and they passed, and the PR's table says so. That mismatch is for TL-8, where PRs explain themselves. On the four real issues the agents' code was already right, so the gate only confirmed it. The fixture is the one run where the gate changed the outcome. Its agent also wrote "I haven't re-run the tests" in its summary, though the gate's rerun then passed. The benchmark (TL-14) needs issues where agents actually get things wrong.
 
 The gate costs about a cent a run (an average of $0.032 on the four issues, against TL-4's $0.023). Dropping `--bare` adds 3,247 prompt tokens to every request (1,660 against 4,907 for a one-word reply), which matches the extra cost. `--disable-slash-commands` does not reduce it.
+
+## Follow-up: this repository's tests inside the gate (#41)
+
+**Expected.** Once TL-6 installed the clone's dependencies, the real stop hook would pass on this repository with a correct change.
+
+**Happened.** `typecheck` and `lint` passed. `test` failed with `listen EPERM ... tsx-501/<pid>.pipe`: tsx's CLI opens a Unix socket for IPC, and the checks' sandbox denies Unix sockets. Allowing them was rejected. On Linux, `srt` can allow every Unix socket or none, because seccomp cannot filter by path, and every socket includes Docker's, which is root on GitHub's runners. The sandbox is unchanged. Instead:
+
+- `test` is now `node --import tsx --test`. tsx's loader compiles the same files and opens no socket. That fixed tsx's own pipe, but four of the gate's own tests still failed inside the gate.
+- Three of them start `srt` themselves, and `srt` cannot start inside `srt` (`listen EPERM` on its proxy socket). They now skip when `SANDBOX_RUNTIME=1`, which `srt` sets. The question-stop test starts the hook with `node --import tsx`, so it still runs inside the gate.
+- The macOS sandbox test now also checks that a check cannot connect to a Unix socket on the host. A control first connects to the same socket outside the sandbox. With `allowAllUnixSockets: true` patched into a scratch copy, the test fails.
+- CI's new `gate` job prepares an Ubuntu runner as `factory.yml` does and runs the real hook on a fresh clone of the PR. It then runs the hook again with probes of the network, Docker's socket, a file in the home directory and a key file. Each probe must first reach its target outside the sandbox.
+
+**What the numbers said.** On macOS, the real hook run on a fresh clone of the branch went from `test exit 1` to all three checks passing (0.4 s, 0.1 s and 0.2 s). Inside the gate, 17 tests passed and 3 skipped. Run outside it, all 20 passed. With one assertion broken in the clone, the hook still blocked, with exit 2 and `test failed`.
+
+On Linux it has not run yet. Three attempts of the `gate` job on 11 November, half an hour apart, failed before the hook started. apt on the runner could not resolve any Ubuntu mirror (`Temporary failure resolving 'security.ubuntu.com'`) while fetching socat and ripgrep. In the same run, the `checks` job installed from npm without trouble. `factory.yml` prepares its runner with the same apt line, so factory runs on Actions would fail at that step too.
