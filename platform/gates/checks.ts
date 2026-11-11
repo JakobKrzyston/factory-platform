@@ -1,7 +1,7 @@
 /** Runs a repository's typecheck, lint and test scripts inside the OS sandbox. Exports runChecks, baseChecks,
  *  sandboxSettings and CHECK_NAMES. */
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -31,13 +31,17 @@ export function baseChecks(packageJson: string): Check[] {
 }
 
 /** Builds the sandbox-runtime settings that confine a check to `dir`: no network, writes only in `dir`, and no reads
- *  of `denyRead` (the same paths the agent's own Bash sandbox denies). `dir` and the Node installation stay readable.
+ *  of `denyRead` (the same paths the agent's own Bash sandbox denies). `dir`, the Node installation and srt's own
+ *  package stay readable.
  *  Args: dir: the checkout the checks run in; denyRead: absolute paths code the agent wrote must not read.
  *  Returns: an object to write as srt's settings file. */
 export function sandboxSettings(dir: string, denyRead: string[]) {
   const nodeInstall = dirname(dirname(process.execPath));
+  // On Linux srt runs its apply-seccomp binary from inside the sandbox. On a runner this repository sits under the
+  // denied home directory, so without this every check exits 127 (#41).
+  const srtPackage = dirname(dirname(realpathSync(SRT_CLI)));
   return {
-    filesystem: { denyRead, allowRead: [dir, nodeInstall], allowWrite: [dir], denyWrite: [] },
+    filesystem: { denyRead, allowRead: [dir, nodeInstall, srtPackage], allowWrite: [dir], denyWrite: [] },
     network: { allowedDomains: [], deniedDomains: [] },
   };
 }
