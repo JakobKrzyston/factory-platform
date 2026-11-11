@@ -6,12 +6,16 @@
 # The agent works in a fresh clone and can only read and edit that clone and run
 # sandboxed shell commands; it cannot reach GitHub. A stop hook refuses to let it
 # finish while the repository's typecheck, lint or test script fails. This script
-# commits, pushes and opens the PR. Each run is recorded under .runlog/runs/<run-id>/.
+# commits, pushes and opens the PR. Each run is recorded under .runlog/runs/<run-id>/
+# and as a row in the run log (platform/runlog/): Postgres when DATABASE_URL is set,
+# otherwise SQLite in .runlog/. Set RUN_LOG_ID to choose the row's id.
 #
 # Exit status: 0 with the PR's URL on stdout; 3 with the agent's question on
 # stdout when it stopped to ask one; anything else means no PR.
 set -euo pipefail
 
+FACTORY=code
+ROLE=implementer
 MODEL=sonnet
 TIME_LIMIT_SECONDS=1800
 BUDGET_USD=5
@@ -35,7 +39,22 @@ NUMBER=${BASH_REMATCH[2]}
 if [[ -f $ROOT/.env.local ]]; then
   source "$ROOT/.env.local"
 fi
-: "${ANTHROPIC_API_KEY:?ANTHROPIC_API_KEY is not set (see .env.example)}"
+
+STAMP=$(date -u +%Y%m%dT%H%M%SZ)
+RUN_ID=$STAMP-${REPO//\//-}-$NUMBER
+RUN_DIR=$ROOT/.runlog/runs/$RUN_ID
+RUN_LOG_ID=${RUN_LOG_ID:-$(node -p 'crypto.randomUUID()')}
+# DATABASE_URL, from .env.local or the caller, is passed to the writer only, never to the agent.
+runlog() { (cd "$ROOT" && DATABASE_URL=${DATABASE_URL:-} node_modules/.bin/tsx platform/runlog/runlog.ts "$@"); }
+
+# A checkout with uncommitted changes is not the committed factory, so its rows
+# must not share the commit's factory_sha: the suffix hashes the tracked changes.
+FACTORY_SHA=$(git -C "$ROOT" rev-parse HEAD)
+if [[ -n $(git -C "$ROOT" status --porcelain) ]]; then
+  FACTORY_SHA+=-dirty-$(git -C "$ROOT" diff HEAD | git hash-object --stdin | cut -c1-12)
+fi
+# Before anything that can fail, so every run that gets this far has a row.
+runlog start "$RUN_LOG_ID" "$FACTORY" "$ROLE" "$FACTORY_SHA" "$MODEL" "$REPO" "$NUMBER"
 
 # Claude Code reads the key through apiKeyHelper from a file the agent is
 # denied, so the key never enters the agent's environment.
@@ -44,12 +63,24 @@ KEY_DIR=$(mktemp -d)
 # run directory's changes.patch hold everything worth keeping.
 CLONE_PARENT=$(mktemp -d)
 GIT_PARENT=$(mktemp -d)
-trap 'rm -rf "$KEY_DIR" "$CLONE_PARENT" "$GIT_PARENT"' EXIT
-(umask 077 && printf '%s' "$ANTHROPIC_API_KEY" > "$KEY_DIR/key")
+# Every exit ends the run's row, with whatever the run directory holds by then.
+# Set only once this run's insert succeeded: a failed insert, such as a reused
+# RUN_LOG_ID, must not end another run's row. The two exits that are not
+# failures set OUTCOME first. The trap must keep the exit status, which says
+# whether a PR opened, so a failure to end the row is only reported; on Actions
+# the workflow's last step then ends the row as failed.
+OUTCOME=failed
+trap 'status=$?
+  rm -rf "$KEY_DIR" "$CLONE_PARENT" "$GIT_PARENT"
+  runlog finish "$RUN_LOG_ID" "$OUTCOME" "$RUN_DIR" || echo "run log: could not end row $RUN_LOG_ID" >&2
+  exit $status' EXIT
 
-STAMP=$(date -u +%Y%m%dT%H%M%SZ)
-RUN_ID=$STAMP-${REPO//\//-}-$NUMBER
-RUN_DIR=$ROOT/.runlog/runs/$RUN_ID
+# An explicit exit: bash 3.2 gives the EXIT trap a status of 0 after a failed ${VAR:?}.
+if [[ -z ${ANTHROPIC_API_KEY:-} ]]; then
+  echo "ANTHROPIC_API_KEY is not set (see .env.example)" >&2
+  exit 1
+fi
+(umask 077 && printf '%s' "$ANTHROPIC_API_KEY" > "$KEY_DIR/key")
 WORKDIR=$CLONE_PARENT/repo
 # The clone's git metadata lives outside the clone, where the agent cannot write,
 # so it can neither commit nor plant hooks or config that this script's git
@@ -138,13 +169,13 @@ start with QUESTION: followed by the one question you need answered. Asking disc
 End with a short summary for the pull request description: what changed, how you checked it, and anything left undone."
 
 jq -n \
-  --arg run_id "$RUN_ID" --arg issue "$ISSUE_URL" --arg repo "$REPO" \
+  --arg run_id "$RUN_ID" --arg run_log_id "$RUN_LOG_ID" --arg issue "$ISSUE_URL" --arg repo "$REPO" \
   --arg base "$BASE" --arg branch "$BRANCH" --arg workdir "$WORKDIR" \
   --arg model "$MODEL" --argjson time_limit "$TIME_LIMIT_SECONDS" --argjson budget "$BUDGET_USD" \
   --arg tools "$TOOLS" --arg permission_mode "$PERMISSION_MODE" \
   --arg claude_version "$(claude --version)" --arg started_at "$(date -u +%FT%TZ)" \
   --slurpfile settings "$RUN_DIR/settings.json" \
-  '{run_id: $run_id, issue: $issue, repo: $repo, base: $base, branch: $branch,
+  '{run_id: $run_id, run_log_id: $run_log_id, issue: $issue, repo: $repo, base: $base, branch: $branch,
     working_directory: $workdir, model: $model, time_limit_seconds: $time_limit,
     budget_usd: $budget, tools: ($tools | split(",")), allowed_tools: $ARGS.positional,
     permission_mode: $permission_mode, settings: $settings[0],
@@ -219,6 +250,7 @@ if [[ $STATUS -eq 0 && $SUMMARY == QUESTION:* ]]; then
     && mv "$RUN_DIR/run.json.tmp" "$RUN_DIR/run.json"
   echo "run $RUN_ID: the agent asked a question, so no pull request; see $RUN_DIR" >&2
   printf '%s\n' "$QUESTION"
+  OUTCOME=needs_human
   exit 3
 fi
 
@@ -247,6 +279,8 @@ repo_git push --quiet -u origin "$BRANCH"
 
 PR_URL=$(gh pr create --repo "$REPO" --draft --base "$BASE" --head "$BRANCH" \
   --title "$TITLE" --body "$PR_BODY")
-jq --arg pr "$PR_URL" '. + {pr: $pr}' "$RUN_DIR/run.json" > "$RUN_DIR/run.json.tmp" \
-  && mv "$RUN_DIR/run.json.tmp" "$RUN_DIR/run.json"
+# head_sha is what the run handed off; rework compares the merged PR against it.
+jq --arg pr "$PR_URL" --arg head_sha "$(repo_git rev-parse HEAD)" '. + {pr: $pr, head_sha: $head_sha}' \
+  "$RUN_DIR/run.json" > "$RUN_DIR/run.json.tmp" && mv "$RUN_DIR/run.json.tmp" "$RUN_DIR/run.json"
+OUTCOME=done
 echo "$PR_URL"

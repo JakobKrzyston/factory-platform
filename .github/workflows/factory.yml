@@ -24,6 +24,8 @@ jobs:
       ISSUE: ${{ github.event.issue.number }}
       ISSUE_URL: ${{ github.event.issue.html_url }}
       RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+      # The run's row in the run log (platform/runlog/), named after this Actions run so the two join.
+      RUN_LOG_ID: github-${{ github.run_id }}-${{ github.run_attempt }}
     steps:
       - uses: actions/checkout@v5
         with:
@@ -53,6 +55,8 @@ jobs:
           claimed=$(pnpm exec tsx platform/queue/queue.ts claim "$REPO" "$ISSUE")
           echo "claimed=$claimed" >> "$GITHUB_OUTPUT"
 
+      # After the claim, so a run that finds nothing to claim stops without installing anything, and a
+      # runner that cannot be set up reaches the report step below instead of leaving the issue queued.
       - name: Prepare the runner
         if: steps.claim.outputs.claimed == 'true'
         env:
@@ -81,6 +85,7 @@ jobs:
           GH_TOKEN: ${{ steps.app.outputs.token }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           FACTORY_BOT: ${{ steps.app.outputs.app-slug }}[bot]
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: |
           code=0
           scripts/run-issue.sh "$ISSUE_URL" > "$RUNNER_TEMP/out" || code=$?
@@ -117,11 +122,21 @@ jobs:
           echo "The factory run stopped before it could report ($JOB_STATUS). See the [run log]($RUN_URL), then add \`factory:ready\` to try again." > "$RUNNER_TEMP/comment.md"
           pnpm exec tsx platform/queue/queue.ts set "$REPO" "$ISSUE" needs-human "$RUNNER_TEMP/comment.md"
 
+      # run-issue.sh ends its own row. This catches a script that was killed or cancelled first, and does
+      # nothing to a row that has already ended. The runner is fresh, so the one directory under
+      # .runlog/runs/ is this run's, and the row gets the tokens its transcript recorded.
+      - name: End the run log row
+        if: always() && steps.claim.outputs.claimed == 'true' && steps.agent.outcome != 'skipped'
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: pnpm exec tsx platform/runlog/runlog.ts finish "$RUN_LOG_ID" failed .runlog/runs/*/
+
       - uses: actions/upload-artifact@v7
         if: always() && steps.claim.outputs.claimed == 'true'
         with:
           name: run-issue-${{ github.event.issue.number }}-${{ github.run_id }}-${{ github.run_attempt }}
-          path: .runlog/runs/
+          # .runlog/ also holds runlog.db, the run log itself when DATABASE_URL is not set.
+          path: .runlog/
           include-hidden-files: true
           if-no-files-found: ignore
 
@@ -148,6 +163,13 @@ jobs:
           app-id: ${{ vars.FACTORY_APP_ID }}
           private-key: ${{ secrets.FACTORY_APP_PRIVATE_KEY }}
           permission-issues: write
+          permission-pull-requests: read
       - env:
           GH_TOKEN: ${{ steps.app.outputs.token }}
         run: pnpm exec tsx platform/queue/queue.ts set "${{ github.repository }}" "${{ github.event.issue.number }}" done
+      # Compares each merged factory PR's head with the commit its run handed off.
+      - name: Record rework
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: pnpm exec tsx platform/runlog/runlog.ts rework "${{ github.repository }}" "${{ github.event.issue.number }}"
