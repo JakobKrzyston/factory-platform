@@ -23,6 +23,7 @@ The gate checks structure, not truth. "Two-way door" on a database migration pas
   - The system prompt the agent received held both the skill and the template.
 - **The workflow's "Run the agent" step**, extracted and run with stubs for the script and `pnpm`. Exit 4 posts "The factory opened <PR>, but its description is not ready for review:" with the list, sets `needs-human`, and leaves the step green. Exits 0, 3 and 1 behave as before.
 - `pnpm typecheck`, `pnpm lint` and `pnpm test` (50 tests) pass.
+- **CI's gate job failed the first push.** The CLI test started `tsx`'s CLI, which opens a Unix socket that the checks' sandbox denies (#41, the reason `pnpm test` uses `node --import tsx`). The test now does the same, and the gate passes. The gate prints only the last 60 lines of test output, which did not include the failing test, so the cause was found by reading the diff.
 - Not yet checked: a live run on Actions, and a real model following the skill.
 
 ## What the numbers said
