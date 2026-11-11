@@ -73,6 +73,11 @@ test("measure counts a killed run's messages once each and leaves its cost unkno
   assert.equal(measure("").input_tokens, null);
 });
 
+test("measure keeps the result line's cost when it reports no modelUsage", () => {
+  const { modelUsage, ...noModelUsage } = RESULT;
+  assert.equal(measure(jsonl(INIT, assistant("m1", 70), noModelUsage)).cost_usd, 1.234567);
+});
+
 test("a run that opened a PR ends done with its measurements", async () => {
   const db = await freshLog();
   await startRun(db, RUN);
@@ -122,6 +127,22 @@ test("a fallback finish leaves an ended row alone, and a run that never started 
   await assert.rejects(finishRun(db, "missing", "failed"), /no run log row with id missing/);
 });
 
+test("a finish that loses a race to another finish reports that it ended nothing", async () => {
+  const db = await freshLog();
+  await startRun(db, RUN);
+  // The other finish lands between this one's read of the row and its update.
+  const racing: RunLog = {
+    ...db,
+    query: async (text, params) => {
+      if (text.startsWith("UPDATE")) await finishRun(db, RUN.id, "done");
+      return db.query(text, params);
+    },
+  };
+  assert.equal(await finishRun(racing, RUN.id, "failed"), false);
+  const [row] = await db.query("SELECT status FROM runs");
+  assert.equal(row.status, "done");
+});
+
 test("rework is set when the merged head is not the commit handed off", async () => {
   const db = await freshLog();
   const handOff = async (id: string, pr: number, head: string) => {
@@ -131,10 +152,13 @@ test("rework is set when the merged head is not the commit handed off", async ()
   await handOff("a", 47, "aaa"); // merged as handed off
   await handOff("b", 48, "bbb"); // a human pushed ccc before merging
   await handOff("c", 49, "ddd"); // still open
+  await startRun(db, { ...RUN, id: "d" }); // merged, but its run recorded no head_sha, so rework is unknown
+  await finishRun(db, "d", "failed", runDir({ "run.json": JSON.stringify({ pr: "https://x/pull/50" }) }));
   const heads: Record<number, { merged: boolean; head: string }> = {
     47: { merged: true, head: "aaa" },
     48: { merged: true, head: "ccc" },
     49: { merged: false, head: "ddd" },
+    50: { merged: true, head: "eee" },
   };
   assert.deepEqual(await recordRework(db, RUN.repo, RUN.issue, (pr) => heads[pr]), [
     { pr: 47, rework: false },
@@ -147,6 +171,7 @@ test("rework is set when the merged head is not the commit handed off", async ()
       { pr: 47, rework: 0 },
       { pr: 48, rework: 1 },
       { pr: 49, rework: null },
+      { pr: 50, rework: null },
     ],
   );
 });

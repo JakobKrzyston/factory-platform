@@ -48,23 +48,26 @@ export function migrateSqlite(path: string): string[] {
   }
 }
 
-/** Applies pending migrations to a Postgres database, each in its own transaction.
+/** Applies pending migrations to a Postgres database, all in one transaction. Factory runs that start together
+ *  each migrate, so the transaction first takes a lock that makes the others wait, then find nothing pending.
  *  Args: url: a Postgres connection string, such as a Neon branch's.
  *  Returns: the versions applied by this call, empty when already up to date. */
 export async function migratePostgres(url: string): Promise<string[]> {
   const sql = postgres(url, { max: 1, onnotice: () => {} });
   try {
-    await sql.unsafe(TRACKING_TABLE);
-    const done = new Set((await sql`SELECT version FROM schema_migrations`).map((r) => r.version));
-    const applied: string[] = [];
-    for (const m of migrations().filter((m) => !done.has(m.version))) {
-      await sql.begin(async (tx) => {
+    // A transaction-level lock, because a session-level one would not hold through Neon's pooled connections.
+    return await sql.begin(async (tx) => {
+      await tx`SELECT pg_advisory_xact_lock(hashtext('runlog migrations'))`;
+      await tx.unsafe(TRACKING_TABLE);
+      const done = new Set((await tx`SELECT version FROM schema_migrations`).map((r) => r.version));
+      const applied: string[] = [];
+      for (const m of migrations().filter((m) => !done.has(m.version))) {
         await tx.unsafe(m.sql);
         await tx`INSERT INTO schema_migrations (version) VALUES (${m.version})`;
-      });
-      applied.push(m.version);
-    }
-    return applied;
+        applied.push(m.version);
+      }
+      return applied;
+    });
   } finally {
     await sql.end();
   }

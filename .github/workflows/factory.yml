@@ -46,9 +46,19 @@ jobs:
           permission-issues: write
           permission-pull-requests: write
 
-      # Before the claim, so a runner that cannot be set up leaves the issue queued, and a claimed run
-      # always reaches run-issue.sh, which writes the run log row first.
+      - name: Claim the issue
+        id: claim
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+        # Assigned first so a failed claim fails the step; inside echo's arguments it would not.
+        run: |
+          claimed=$(pnpm exec tsx platform/queue/queue.ts claim "$REPO" "$ISSUE")
+          echo "claimed=$claimed" >> "$GITHUB_OUTPUT"
+
+      # After the claim, so a run that finds nothing to claim stops without installing anything, and a
+      # runner that cannot be set up reaches the report step below instead of leaving the issue queued.
       - name: Prepare the runner
+        if: steps.claim.outputs.claimed == 'true'
         env:
           GH_TOKEN: ${{ steps.app.outputs.token }}
           APP_SLUG: ${{ steps.app.outputs.app-slug }}
@@ -64,15 +74,6 @@ jobs:
           gh auth setup-git
           git config --global user.name "$APP_SLUG[bot]"
           git config --global user.email "$(gh api "users/$APP_SLUG%5Bbot%5D" --jq .id)+$APP_SLUG[bot]@users.noreply.github.com"
-
-      - name: Claim the issue
-        id: claim
-        env:
-          GH_TOKEN: ${{ steps.app.outputs.token }}
-        # Assigned first so a failed claim fails the step; inside echo's arguments it would not.
-        run: |
-          claimed=$(pnpm exec tsx platform/queue/queue.ts claim "$REPO" "$ISSUE")
-          echo "claimed=$claimed" >> "$GITHUB_OUTPUT"
 
       - name: Run the agent
         id: agent
@@ -119,12 +120,13 @@ jobs:
           pnpm exec tsx platform/queue/queue.ts set "$REPO" "$ISSUE" needs-human "$RUNNER_TEMP/comment.md"
 
       # run-issue.sh ends its own row. This catches a script that was killed or cancelled first, and does
-      # nothing to a row that has already ended.
+      # nothing to a row that has already ended. The runner is fresh, so the one directory under
+      # .runlog/runs/ is this run's, and the row gets the tokens its transcript recorded.
       - name: End the run log row
-        if: always() && steps.claim.outputs.claimed == 'true'
+        if: always() && steps.claim.outputs.claimed == 'true' && steps.agent.outcome != 'skipped'
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
-        run: pnpm exec tsx platform/runlog/runlog.ts finish "$RUN_LOG_ID" failed
+        run: pnpm exec tsx platform/runlog/runlog.ts finish "$RUN_LOG_ID" failed .runlog/runs/*/
 
       - uses: actions/upload-artifact@v7
         if: always() && steps.claim.outputs.claimed == 'true'

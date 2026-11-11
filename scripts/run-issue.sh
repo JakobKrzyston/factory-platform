@@ -47,6 +47,15 @@ RUN_LOG_ID=${RUN_LOG_ID:-$(node -p 'crypto.randomUUID()')}
 # DATABASE_URL, from .env.local or the caller, is passed to the writer only, never to the agent.
 runlog() { (cd "$ROOT" && DATABASE_URL=${DATABASE_URL:-} node_modules/.bin/tsx platform/runlog/runlog.ts "$@"); }
 
+# A checkout with uncommitted changes is not the committed factory, so its rows
+# must not share the commit's factory_sha: the suffix hashes the tracked changes.
+FACTORY_SHA=$(git -C "$ROOT" rev-parse HEAD)
+if [[ -n $(git -C "$ROOT" status --porcelain) ]]; then
+  FACTORY_SHA+=-dirty-$(git -C "$ROOT" diff HEAD | git hash-object --stdin | cut -c1-12)
+fi
+# Before anything that can fail, so every run that gets this far has a row.
+runlog start "$RUN_LOG_ID" "$FACTORY" "$ROLE" "$FACTORY_SHA" "$MODEL" "$REPO" "$NUMBER"
+
 # Claude Code reads the key through apiKeyHelper from a file the agent is
 # denied, so the key never enters the agent's environment.
 KEY_DIR=$(mktemp -d)
@@ -55,16 +64,16 @@ KEY_DIR=$(mktemp -d)
 CLONE_PARENT=$(mktemp -d)
 GIT_PARENT=$(mktemp -d)
 # Every exit ends the run's row, with whatever the run directory holds by then.
-# The two exits that are not failures set OUTCOME first. The trap must keep the
-# exit status, which says whether a PR opened, so a failure to end the row is only
-# reported; on Actions the workflow's last step then ends the row as failed.
+# Set only once this run's insert succeeded: a failed insert, such as a reused
+# RUN_LOG_ID, must not end another run's row. The two exits that are not
+# failures set OUTCOME first. The trap must keep the exit status, which says
+# whether a PR opened, so a failure to end the row is only reported; on Actions
+# the workflow's last step then ends the row as failed.
 OUTCOME=failed
 trap 'status=$?
   rm -rf "$KEY_DIR" "$CLONE_PARENT" "$GIT_PARENT"
   runlog finish "$RUN_LOG_ID" "$OUTCOME" "$RUN_DIR" || echo "run log: could not end row $RUN_LOG_ID" >&2
   exit $status' EXIT
-# Before anything that can fail, so every run that gets this far has a row.
-runlog start "$RUN_LOG_ID" "$FACTORY" "$ROLE" "$(git -C "$ROOT" rev-parse HEAD)" "$MODEL" "$REPO" "$NUMBER"
 
 # An explicit exit: bash 3.2 gives the EXIT trap a status of 0 after a failed ${VAR:?}.
 if [[ -z ${ANTHROPIC_API_KEY:-} ]]; then

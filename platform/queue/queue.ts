@@ -51,7 +51,11 @@ export function claimRefusal(issue: { state: string; labels: string[] }): string
   return null;
 }
 
-function gh(args: string[], input?: string): string {
+/** Runs the GitHub CLI and returns its stdout.
+ *  Args: args: the arguments after `gh`; input: text for its stdin, if any.
+ *  Returns: what it printed.
+ *  Raises: if `gh` exits non-zero. */
+export function gh(args: string[], input?: string): string {
   return execFileSync("gh", args, { input, encoding: "utf8" });
 }
 

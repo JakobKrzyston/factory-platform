@@ -5,7 +5,6 @@
  *  tsx platform/runlog/runlog.ts start <id> <factory> <role> <factory_sha> <model> <owner/repo> <issue>
  *  tsx platform/runlog/runlog.ts finish <id> <done|needs_human|failed> [run-dir]
  *  tsx platform/runlog/runlog.ts rework <owner/repo> <issue>        needs `gh` signed in */
-import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -13,6 +12,7 @@ import { pathToFileURL } from "node:url";
 
 import postgres from "postgres";
 
+import { gh } from "../queue/queue";
 import { DEFAULT_SQLITE_PATH, migratePostgres, migrateSqlite } from "./migrate";
 
 type Param = string | number | boolean | null;
@@ -80,7 +80,8 @@ type ModelUsage = { inputTokens: number; outputTokens: number; cacheReadInputTok
 
 /** Reads a run's model, tokens and cost from Claude Code's stream-json transcript.
  *  Args: transcript: the transcript.jsonl text; a killed run can leave its last line truncated.
- *  Returns: the measurements; cost is null when the run ended without a result line. */
+ *  Returns: the measurements; cost is null when the run ended without a result line, or its result line
+ *  reported none. */
 export function measure(transcript: string): Measurements {
   const lines = transcript.split("\n").flatMap((line) => {
     try {
@@ -106,8 +107,9 @@ export function measure(transcript: string): Measurements {
     };
   }
 
-  // A killed run writes no result line. Its tokens are still in the assistant messages, each of which is
-  // streamed once per content block with the same usage, so count each message id once.
+  // A killed run writes no result line, and a result line may lack modelUsage. The tokens are still in the
+  // assistant messages, each of which is streamed once per content block with the same usage, so count each
+  // message id once.
   const byMessage = new Map<string, Usage>();
   for (const l of lines) if (l.type === "assistant" && l.message?.usage) byMessage.set(l.message.id, l.message.usage);
   if (byMessage.size === 0) {
@@ -121,7 +123,7 @@ export function measure(transcript: string): Measurements {
     output_tokens: total("output_tokens"),
     cache_read_tokens: total("cache_read_input_tokens"),
     cache_write_tokens: total("cache_creation_input_tokens"),
-    cost_usd: null,
+    cost_usd: result?.total_cost_usd ?? null,
   };
 }
 
@@ -133,7 +135,7 @@ export function measure(transcript: string): Measurements {
  *    id: the row's id.
  *    status: `done`, `needs_human` or `failed`.
  *    runDir: run-issue.sh's .runlog/runs/<run-id>/, read for transcript.jsonl and run.json when present.
- *  Returns: true if the row was ended now, false if it had already ended.
+ *  Returns: true if this call ended the row, false if it had already ended or another call ended it first.
  *  Raises: if there is no row with this id. */
 export async function finishRun(db: RunLog, id: string, status: string, runDir?: string): Promise<boolean> {
   const [row] = await db.query("SELECT status, started_at FROM runs WHERE id = ?", [id]);
@@ -146,10 +148,10 @@ export async function finishRun(db: RunLog, id: string, status: string, runDir?:
   const endedAt = new Date();
   const wallSeconds = Math.round((endedAt.getTime() - new Date(row.started_at as string).getTime()) / 1000);
 
-  await db.query(
+  const ended = await db.query(
     `UPDATE runs SET status = ?, ended_at = ?, wall_seconds = ?, model = COALESCE(?, model), pr = ?, head_sha = ?,
        input_tokens = ?, output_tokens = ?, cache_read_tokens = ?, cache_write_tokens = ?, cost_usd = ?, checks_passed = ?
-     WHERE id = ? AND status = 'running'`,
+     WHERE id = ? AND status = 'running' RETURNING id`,
     [
       status,
       endedAt.toISOString(),
@@ -166,11 +168,12 @@ export async function finishRun(db: RunLog, id: string, status: string, runDir?:
       id,
     ],
   );
-  return true;
+  return ended.length > 0;
 }
 
 /** Sets `rework` on the runs behind an issue's merged pull requests: true when the PR's head at merge is not
- *  the commit the factory handed off, the `head_sha` of the last run on that PR to end.
+ *  the commit the factory handed off, the `head_sha` of the last run on that PR to end. A PR whose runs recorded
+ *  no `head_sha` is skipped, since there is nothing to compare its head with.
  *
  *  Args:
  *    db: the run log.
@@ -185,10 +188,11 @@ export async function recordRework(
   lookup: (pr: number) => { merged: boolean; head: string },
 ): Promise<{ pr: number; rework: boolean }[]> {
   const rows = await db.query(
-    "SELECT pr, head_sha FROM runs WHERE repo = ? AND issue = ? AND pr IS NOT NULL AND rework IS NULL ORDER BY ended_at",
+    `SELECT pr, head_sha FROM runs
+     WHERE repo = ? AND issue = ? AND pr IS NOT NULL AND head_sha IS NOT NULL AND rework IS NULL ORDER BY ended_at`,
     [repo, issue],
   );
-  const handedOff = new Map(rows.map((r) => [Number(r.pr), r.head_sha as string | null]));
+  const handedOff = new Map(rows.map((r) => [Number(r.pr), r.head_sha as string]));
   const updated: { pr: number; rework: boolean }[] = [];
   for (const [pr, headSha] of handedOff) {
     const { merged, head } = lookup(pr);
@@ -201,10 +205,7 @@ export async function recordRework(
 }
 
 function githubPr(repo: string, pr: number): { merged: boolean; head: string } {
-  const out = execFileSync("gh", ["pr", "view", String(pr), "--repo", repo, "--json", "mergedAt,headRefOid"], {
-    encoding: "utf8",
-  });
-  const { mergedAt, headRefOid } = JSON.parse(out);
+  const { mergedAt, headRefOid } = JSON.parse(gh(["pr", "view", String(pr), "--repo", repo, "--json", "mergedAt,headRefOid"]));
   return { merged: Boolean(mergedAt), head: headRefOid };
 }
 
