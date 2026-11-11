@@ -32,7 +32,7 @@ The scheduled workflow has not run yet. It needs the `throughline` environment, 
 | Oldest delivery listed | 2026-11-10T04:10:06Z, `issues.labeled` |
 | Probe | 401 from Vercel protection, with a bypass in the URL |
 | Exit code | 1 |
-| Merges after the newest listed delivery | 9 (#38 to #43), none of them in the list |
+| Merges after the newest listed delivery | 9 (#28, #29, #31, #36, #38, #39, #40, #42, #43), none of them in the list |
 | Outage, before this check | At least 34 hours unnoticed (04:10 UTC on 2026-11-10 to a run after 14:47 UTC on 2026-11-11) |
 | Time to find it with the check | One command |
 
