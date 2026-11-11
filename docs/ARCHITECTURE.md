@@ -89,6 +89,14 @@ The fallback is for a run whose hook gave up refusing. `run-issue.sh` reads the 
 
 Tested by: TL-8 (`docs/notes/08-self-explaining-prs.md`).
 
+### Review comments become numbered rules the reviewer must cite (TL-9)
+
+`standards/rules.md` holds the standing rules as `## R-n: Title` headings, each with the `Source:` it came from. `pnpm standards collect` (`platform/standards/standards.ts`) reads the pull requests merged in the last week and writes every human reviewer's comment that is not yet a rule's source to `standards/draft.md`: inline comments, review summaries and conversation comments, without the PR's author or bots. A human promotes entries to rules. The script does not write rules itself, because most review comments are about one PR, not a habit, and a rule the reviewer must apply on every diff should be one a person chose.
+
+The review agent cites rules through guidance and a gate. The guidance is `factories/code/skills/cite-standards/SKILL.md`: every finding under `## Findings` starts with `[R-n]` or `[no rule]`. The gate is `pnpm standards check-review`, which fails a review with a finding that cites nothing or cites an ID not in `rules.md`. IDs are never reused, so old citations stay unambiguous. `[no rule]` findings are where the next rules come from. The reviewer runs in a clone of the target repository, which has no `standards/`, so the run passes it `rules.md` and the skill. TL-7's review agent already writes findings in this format. Loading the rules and running the gate is added by whichever of TL-7 and TL-9 merges second.
+
+Tested by: TL-9 (`docs/notes/09-review-standing-rules.md`).
+
 ### Humans merge: two rulesets and a factory App (TL-10)
 
 The factory acts on GitHub as its own GitHub App, never as the owner and never through Actions' `GITHUB_TOKEN`. An owner token would make the owner the PR author, and GitHub does not let authors approve their own PRs, so the one human here could never approve factory work. `GITHUB_TOKEN` is ruled out twice: PRs it opens do not trigger workflows, so the required check would never run, and letting it open PRs also lets it approve them. The App gets read-write Contents, Pull requests and Issues, and nothing else: without Workflows it cannot edit `.github/workflows`, and without Checks or Commit statuses it cannot post a green check of its own.
