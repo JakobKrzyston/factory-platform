@@ -48,7 +48,10 @@ jobs:
         id: claim
         env:
           GH_TOKEN: ${{ steps.app.outputs.token }}
-        run: echo "claimed=$(pnpm exec tsx platform/queue/queue.ts claim "$REPO" "$ISSUE")" >> "$GITHUB_OUTPUT"
+        # Assigned first so a failed claim fails the step; inside echo's arguments it would not.
+        run: |
+          claimed=$(pnpm exec tsx platform/queue/queue.ts claim "$REPO" "$ISSUE")
+          echo "claimed=$claimed" >> "$GITHUB_OUTPUT"
 
       - name: Prepare the runner
         if: steps.claim.outputs.claimed == 'true'
@@ -73,6 +76,7 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.app.outputs.token }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          FACTORY_BOT: ${{ steps.app.outputs.app-slug }}[bot]
         run: |
           code=0
           scripts/run-issue.sh "$ISSUE_URL" > "$RUNNER_TEMP/out" || code=$?
@@ -96,9 +100,12 @@ jobs:
           # A question is a state, not a failure; anything else turns the Actions run red.
           [[ $code -eq 0 || $code -eq 3 ]]
 
-      # A run that times out, is cancelled or breaks before reporting must not stay in-progress.
+      # A run that times out, is cancelled or breaks before reporting must not stay in-progress,
+      # and a claim that failed partway may have left the labels half changed.
       - name: Report a run that stopped early
-        if: always() && steps.claim.outputs.claimed == 'true' && steps.agent.outputs.reported != 'true'
+        if: >-
+          always() && steps.agent.outputs.reported != 'true'
+          && (steps.claim.outputs.claimed == 'true' || steps.claim.outcome == 'failure')
         env:
           GH_TOKEN: ${{ steps.app.outputs.token }}
           JOB_STATUS: ${{ job.status }}

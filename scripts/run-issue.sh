@@ -47,19 +47,28 @@ STAMP=$(date -u +%Y%m%dT%H%M%SZ)
 RUN_ID=$STAMP-${REPO//\//-}-$NUMBER
 RUN_DIR=$ROOT/.runlog/runs/$RUN_ID
 WORKDIR=$(mktemp -d)/repo
+# The clone's git metadata lives outside the clone, where the agent cannot write,
+# so it can neither commit nor plant hooks or config that this script's git
+# commands, which run unsandboxed with GitHub credentials, would execute.
+GIT_DIR_OUTSIDE=$(mktemp -d)/git
+repo_git() { git -C "$WORKDIR" --git-dir="$GIT_DIR_OUTSIDE" --work-tree="$WORKDIR" "$@"; }
 BRANCH=factory/issue-$NUMBER-$STAMP
 mkdir -p "$RUN_DIR"
 
-gh repo clone "$REPO" "$WORKDIR" -- --quiet
-BASE=$(git -C "$WORKDIR" symbolic-ref --short HEAD)
-git -C "$WORKDIR" switch --quiet -c "$BRANCH"
-ISSUE=$(gh issue view "$ISSUE_URL" --json title,body,comments)
+gh repo clone "$REPO" "$WORKDIR" -- --quiet --separate-git-dir "$GIT_DIR_OUTSIDE"
+BASE=$(repo_git symbolic-ref --short HEAD)
+repo_git switch --quiet -c "$BRANCH"
+ISSUE=$(gh issue view "$ISSUE_URL" --json title,body)
 TITLE=$(jq -r .title <<<"$ISSUE")
+# The body is untrusted whoever wrote it; the confinement below is what makes that safe.
 BODY=$(jq -r .body <<<"$ISSUE")
-# Only comments from people who could have queued the issue themselves: that is
-# where a human answers the agent's question. Anyone else's stay out of the prompt.
-COMMENTS=$(jq -r '[.comments[] | select(.authorAssociation | IN("OWNER", "MEMBER", "COLLABORATOR"))
-  | "\(.author.login) commented:\n\n\(.body)"] | join("\n\n---\n\n")' <<<"$ISSUE")
+# Comments only from people who could have queued the issue themselves, where a
+# human answers the agent's question, and from the factory's own App
+# (FACTORY_BOT, e.g. my-app[bot]), which posted the question. Nobody else's.
+COMMENTS=$(gh api --paginate "repos/$REPO/issues/$NUMBER/comments" --jq '.[]' \
+  | jq -rs --arg bot "${FACTORY_BOT:-}" '[.[]
+      | select((.author_association | IN("OWNER", "MEMBER", "COLLABORATOR")) or .user.login == $bot)
+      | "\(.user.login) commented:\n\n\(.body)"] | join("\n\n---\n\n")')
 
 # The gate runs the scripts from this copy, out of the agent's reach, so editing
 # package.json or committing in the clone cannot change what it runs.
@@ -101,10 +110,13 @@ $BODY"
 if [[ -n $COMMENTS ]]; then
   PROMPT+="
 
-Comments from the maintainers:
+Comments from the maintainers and the factory:
 
 $COMMENTS"
 fi
+
+# Passed on stdin: Linux limits a single argument to 128 KiB, and comments can be long.
+printf '%s\n' "$PROMPT" > "$RUN_DIR/prompt.md"
 
 SYSTEM="You are running unattended: nobody will answer you during the run or approve anything. \
 Work only in the current directory. Do not commit; the script that started you commits and opens the pull request. \
@@ -134,7 +146,7 @@ echo "run $RUN_ID: agent working in $WORKDIR (limit ${TIME_LIMIT_SECONDS}s)" >&2
 STATUS=0
 (cd "$WORKDIR" && perl -e 'alarm shift; exec @ARGV' "$TIME_LIMIT_SECONDS" \
   env -i PATH="$PATH" HOME="$HOME" \
-  claude -p "$PROMPT" \
+  claude -p \
     --setting-sources "" --strict-mcp-config --no-session-persistence \
     --model "$MODEL" --max-budget-usd "$BUDGET_USD" \
     --tools "$TOOLS" --allowedTools "${ALLOWED_TOOLS[@]}" \
@@ -142,7 +154,7 @@ STATUS=0
     --settings "$RUN_DIR/settings.json" \
     --append-system-prompt "$SYSTEM" \
     --output-format stream-json --verbose \
-  < /dev/null > "$RUN_DIR/transcript.jsonl") || STATUS=$?
+  < "$RUN_DIR/prompt.md" > "$RUN_DIR/transcript.jsonl") || STATUS=$?
 
 # A run killed by the time limit can leave a truncated last line, so parse leniently.
 RESULT=$(jq -nR '[inputs | fromjson? | select(.type == "result")] | last // {}' "$RUN_DIR/transcript.jsonl")
@@ -151,10 +163,10 @@ MODEL_ID=$(jq -nR '[inputs | fromjson? | select(.type == "system" and .subtype =
 # line is the state it finished in. No line means the gate never ran.
 GATES='[]'
 if [[ -f $RUN_DIR/gates.jsonl ]]; then GATES=$(jq -s . "$RUN_DIR/gates.jsonl"); fi
-CHANGED=$(git -C "$WORKDIR" status --porcelain | wc -l | tr -d ' ')
+CHANGED=$(repo_git status --porcelain | wc -l | tr -d ' ')
 # A pushed branch runs its own workflows with the repository's secrets, so the
 # agent may not change them.
-WORKFLOWS_CHANGED=$(git -C "$WORKDIR" status --porcelain -- .github | wc -l | tr -d ' ')
+WORKFLOWS_CHANGED=$(repo_git status --porcelain -- .github | wc -l | tr -d ' ')
 jq \
   --argjson exit_code "$STATUS" --argjson result "$RESULT" --argjson model_id "$MODEL_ID" \
   --argjson files_changed "$CHANGED" --argjson workflows_changed "$WORKFLOWS_CHANGED" --argjson gates "$GATES" \
@@ -198,9 +210,9 @@ $(jq -r '"| Run | `\(.run_id)` |\n| --- | --- |\n| Model | \(.model_id) |\n| Too
 
 Closes #$NUMBER"
 
-git -C "$WORKDIR" add -A
-git -C "$WORKDIR" commit --quiet -m "Resolve #$NUMBER: $TITLE"
-git -C "$WORKDIR" push --quiet -u origin "$BRANCH"
+repo_git add -A
+repo_git commit --quiet -m "Resolve #$NUMBER: $TITLE"
+repo_git push --quiet -u origin "$BRANCH"
 
 PR_URL=$(gh pr create --repo "$REPO" --draft --base "$BASE" --head "$BRANCH" \
   --title "$TITLE" --body "$PR_BODY")

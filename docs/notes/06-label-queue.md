@@ -15,7 +15,12 @@ Two things had to change for the factory to run on this repository rather than o
 - **#33**: the factory pushes its branches here, so CI on its PRs runs agent-written code. The Anthropic key and the App key are therefore secrets of a `factory` environment that deploys from `main` only. No workflow on `push` or `pull_request` names a repository secret.
 - **Linux sandbox**: Claude Code sandboxes Bash with bubblewrap and socat on Linux. Ubuntu 24.04's AppArmor default blocks the user namespaces bubblewrap needs, and Claude Code's own error message gives the `sysctl` fix the workflow applies. `sandbox.failIfUnavailable` turns a missing sandbox into a failed run instead of unsandboxed Bash. On Linux the sandbox gives Bash its own PID namespace and `/proc` (`--unshare-pid`, `--proc /proc` in the bubblewrap arguments), so the agent cannot read the token in the script's environment.
 
-The human answers in a comment. Only comments from the owner, members and collaborators reach the next prompt, because those are the people who can add the label. Anyone else's comments stay out.
+The human answers in a comment. Only comments from the owner, members and collaborators reach the next prompt, because those are the people who can add the label, plus the factory App's own question, which GitHub reports with author association `NONE`. Anyone else's comments stay out.
+
+Review of the PR found three things the runner changes:
+- The script's post-run git commands, which run unsandboxed and now hold the App token, used a `.git` inside the clone the agent could edit. The git metadata now lives outside the clone.
+- A failed claim was hidden inside `echo "claimed=$(…)"`, so the step stayed green. It is now assigned first, and a failed claim also reports to `needs-human`.
+- The prompt was passed as one argument, which Linux caps at 128 KiB. It now goes in on stdin.
 
 ## Happened
 
@@ -35,6 +40,13 @@ Before merge, without a runner (GitHub runs `issues` workflows only from the def
   - Re-adding `factory:ready` alongside `needs-human` was claimed, and the stale label was removed.
   - `in-review` and `done` each left exactly one `factory:*` label and kept the unrelated `bug` label. A repeated `set done` changed nothing.
   - The timeline shows all 15 label and comment events.
+- After review, using the same stub:
+  - The prompt arrives on stdin.
+  - The clone's `.git` is a pointer to a directory outside it.
+  - An edit under `.github/` still counts as a workflow change and opens no PR.
+  - A local commit through the outside git directory includes the agent's files.
+  - The comment filter keeps the App's question when `FACTORY_BOT` is set and drops other bots.
+  - `claude -p` read a real prompt from stdin.
 - Not yet checked: the workflow on a real runner (bubblewrap under the AppArmor change, the App's commit identity, the App token's permissions for the label calls) and the three acceptance criteria end to end.
 
 ## What the numbers said
