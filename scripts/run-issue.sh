@@ -40,17 +40,21 @@ fi
 # Claude Code reads the key through apiKeyHelper from a file the agent is
 # denied, so the key never enters the agent's environment.
 KEY_DIR=$(mktemp -d)
-trap 'rm -rf "$KEY_DIR"' EXIT
+# The clone is deleted when the script exits. The PR, the transcript and the
+# run directory's changes.patch hold everything worth keeping.
+CLONE_PARENT=$(mktemp -d)
+GIT_PARENT=$(mktemp -d)
+trap 'rm -rf "$KEY_DIR" "$CLONE_PARENT" "$GIT_PARENT"' EXIT
 (umask 077 && printf '%s' "$ANTHROPIC_API_KEY" > "$KEY_DIR/key")
 
 STAMP=$(date -u +%Y%m%dT%H%M%SZ)
 RUN_ID=$STAMP-${REPO//\//-}-$NUMBER
 RUN_DIR=$ROOT/.runlog/runs/$RUN_ID
-WORKDIR=$(mktemp -d)/repo
+WORKDIR=$CLONE_PARENT/repo
 # The clone's git metadata lives outside the clone, where the agent cannot write,
 # so it can neither commit nor plant hooks or config that this script's git
 # commands, which run unsandboxed with GitHub credentials, would execute.
-GIT_DIR_OUTSIDE=$(mktemp -d)/git
+GIT_DIR_OUTSIDE=$GIT_PARENT/git
 repo_git() { git -C "$WORKDIR" --git-dir="$GIT_DIR_OUTSIDE" --work-tree="$WORKDIR" "$@"; }
 BRANCH=factory/issue-$NUMBER-$STAMP
 mkdir -p "$RUN_DIR"
@@ -149,9 +153,26 @@ jq -n \
 
 echo "run $RUN_ID: agent working in $WORKDIR (limit ${TIME_LIMIT_SECONDS}s)" >&2
 
-# perl's alarm is the portable time limit: macOS has no timeout(1).
+# claude runs in its own process group, and the whole group is killed when claude
+# exits, when the time limit passes, or when this script is interrupted, so nothing
+# the agent or the stop hook started (a hung test, a watcher) outlives the run.
+# Sandboxed commands on Linux get a session of their own, but bubblewrap kills them
+# when it dies, and bubblewrap is in the group. Perl, because macOS has neither
+# timeout(1) nor setsid(1). Exit 142 (128 + SIGALRM) means the time limit passed.
 STATUS=0
-(cd "$WORKDIR" && perl -e 'alarm shift; exec @ARGV' "$TIME_LIMIT_SECONDS" \
+(cd "$WORKDIR" && perl -e '
+  my $limit = shift;
+  my $pid = fork // die "fork: $!";
+  if (!$pid) { setpgrp; exec @ARGV or die "exec: $!" }
+  setpgrp $pid, $pid; # also from here, so the kills below cannot run before the group exists
+  $SIG{ALRM} = sub { kill KILL => -$pid; exit 142 };
+  $SIG{$_} = sub { kill KILL => -$pid; exit 130 } for qw(INT TERM HUP);
+  alarm $limit;
+  waitpid $pid, 0;
+  my $status = $?;
+  kill KILL => -$pid;
+  exit($status & 127 ? 128 + ($status & 127) : $status >> 8);
+' "$TIME_LIMIT_SECONDS" \
   env -i PATH="$PATH" HOME="$HOME" \
   claude -p \
     --setting-sources "" --strict-mcp-config --no-session-persistence \
@@ -170,6 +191,9 @@ MODEL_ID=$(jq -nR '[inputs | fromjson? | select(.type == "system" and .subtype =
 # line is the state it finished in. No line means the gate never ran.
 GATES='[]'
 if [[ -f $RUN_DIR/gates.jsonl ]]; then GATES=$(jq -s . "$RUN_DIR/gates.jsonl"); fi
+# Kept because the clone is not: a run that opens no PR still shows what it changed.
+repo_git add -A
+repo_git diff --cached --binary > "$RUN_DIR/changes.patch"
 CHANGED=$(repo_git status --porcelain | wc -l | tr -d ' ')
 # A pushed branch runs its own workflows with the repository's secrets, so the
 # agent may not change them.
