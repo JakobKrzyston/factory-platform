@@ -1,7 +1,9 @@
 /** Tests the quality gate: which checks it runs, its sandbox, and the stop hook's decision. Run: pnpm test */
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
+import { once } from "node:events";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { createServer } from "node:net";
 import { homedir, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { after, test } from "node:test";
@@ -12,8 +14,12 @@ import { type GateConfig, MAX_BLOCKS, verdict } from "./stop-hook";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "../..");
 // srt sandboxes with Seatbelt on macOS and bubblewrap on Linux; GitHub's Ubuntu runners do not allow bubblewrap's
-// user namespaces, so the tests that start a sandbox run only where scripts/run-issue.sh runs today.
-const NO_SANDBOX = process.platform !== "darwin" && "the sandbox tests need macOS";
+// user namespaces, so the tests that start a sandbox run only on macOS. They also cannot run inside srt, as when the
+// gate runs this repository's own tests: srt sets SANDBOX_RUNTIME, and cannot start a sandbox inside its own.
+const NO_SANDBOX =
+  process.platform !== "darwin"
+    ? "the sandbox tests need macOS"
+    : process.env.SANDBOX_RUNTIME === "1" && "the sandbox tests cannot start a sandbox inside the gate's";
 
 const made: string[] = [];
 after(() => {
@@ -68,7 +74,12 @@ test("an agent stopping to ask a question is let through without running the che
   const config: GateConfig = { checkout: dir, package_json: join(run, "base-package.json"), log: join(run, "gates.jsonl"), deny_read: [] };
   writeFileSync(join(run, "gate.json"), JSON.stringify(config));
   const input = JSON.stringify({ hook_event_name: "Stop", last_assistant_message: "QUESTION: Zero words, or an error?" });
-  const hook = spawnSync("node_modules/.bin/tsx", ["platform/gates/stop-hook.ts", join(run, "gate.json")], { cwd: ROOT, encoding: "utf8", input });
+  // tsx's loader rather than its CLI, whose IPC socket the gate's sandbox denies: this test also runs inside the gate.
+  const hook = spawnSync(process.execPath, ["--import", "tsx", "platform/gates/stop-hook.ts", join(run, "gate.json")], {
+    cwd: ROOT,
+    encoding: "utf8",
+    input,
+  });
   assert.equal(hook.status, 0, hook.stderr);
   assert.equal(existsSync(config.log), false);
 });
@@ -87,19 +98,34 @@ test("no package.json means no checks, but an unreadable one fails closed", () =
   assert.throws(() => baseChecks(join(dir, "package.json")), SyntaxError);
 });
 
-test("checks run in the sandbox: the checkout is writable; home, denied paths and network are not", { skip: NO_SANDBOX }, () => {
+test("checks run in the sandbox: the checkout is writable; home, denied paths, network and host sockets are not", { skip: NO_SANDBOX }, async () => {
   const key = secret();
   const dir = scratch();
-  const [inside, home, keyRead, network] = runChecks(
+  // A Unix socket on the host, standing in for Docker's or an agent's. The kernel completes a connection to a
+  // listening socket even while spawnSync blocks this process, so the probe needs no accept loop.
+  const socketPath = join(scratch(), "host.sock");
+  const server = createServer().listen(socketPath);
+  await once(server, "listening");
+  const probe = `node -e "require('node:net').connect(process.argv[1]).on('connect', () => process.exit(0)).on('error', (e) => { console.log(e.code); process.exit(1); })" ${JSON.stringify(socketPath)}`;
+  const unsandboxed = spawnSync("sh", ["-c", probe], { encoding: "utf8" });
+  const [inside, home, keyRead, network, socket] = runChecks(
     dir,
     [
-      { name: "inside", script: "touch written-by-check && node -e 0" },
+      {
+        name: "inside",
+        script: `touch written-by-check && node -e "require('node:fs').mkdtempSync(require('node:path').join(require('node:os').tmpdir(), 'x'))"`,
+      },
       { name: "home", script: `ls ${JSON.stringify(homedir())}` },
       { name: "key", script: `cat ${JSON.stringify(key.file)}` },
       { name: "network", script: "curl -sS -m 5 https://example.com" },
+      { name: "socket", script: probe },
     ],
     [homedir(), key.dir],
   );
+  server.close();
+  assert.equal(unsandboxed.status, 0, `the probe should reach the socket outside the sandbox: ${unsandboxed.stdout}`);
+  assert.equal(socket.ok, false);
+  assert.match(socket.output, /EPERM/);
   assert.equal(inside.ok, true, inside.output);
   assert.ok(existsSync(join(dir, "written-by-check")));
   assert.equal(home.ok, false);

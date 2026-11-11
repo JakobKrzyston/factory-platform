@@ -27,3 +27,59 @@ jobs:
         run: pnpm test
       - name: PLAN.md matches docs/roadmap.ts
         run: pnpm plan && git diff --exit-code docs/PLAN.md
+
+  # The factory's stop hook on this repository, on Linux, prepared as factory.yml prepares its runner (#41).
+  # Not a required check: it installs packages from apt on every run.
+  gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # Kept the same as factory.yml's "Prepare the runner".
+      - name: Prepare the sandbox
+        run: |
+          sudo apt-get update -q -o Acquire::Retries=5
+          sudo apt-get install -y -q --no-install-recommends -o Acquire::Retries=5 bubblewrap socat ripgrep
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          if [[ -f /etc/apparmor.d/bwrap-userns-restrict ]]; then sudo apparmor_parser -R /etc/apparmor.d/bwrap-userns-restrict; fi
+      # As run-issue.sh does: a fresh clone outside the home directory, its dependencies installed, and the hook
+      # started with only PATH and HOME.
+      - name: The checks pass inside the gate
+        run: |
+          clone=$(mktemp -d)/repo
+          run=$(mktemp -d)
+          git clone -q "$PWD" "$clone"
+          (cd "$clone" && env -i PATH="$PATH" HOME="$HOME" pnpm install --frozen-lockfile --ignore-scripts --silent)
+          cp package.json "$run/base-package.json"
+          jq -n --arg checkout "$clone" --arg run "$run" --arg home "$HOME" \
+            '{checkout: $checkout, package_json: "\($run)/base-package.json", log: "\($run)/gates.jsonl", deny_read: [$home]}' \
+            > "$run/gate.json"
+          echo '{}' | env -i PATH="$PATH" HOME="$HOME" node_modules/.bin/tsx platform/gates/stop-hook.ts "$run/gate.json"
+          cat "$run/gates.jsonl"
+      # Each probe first reaches its target outside the sandbox, so a probe that fails inside it shows the sandbox
+      # at work, not a missing target.
+      - name: A check cannot reach the network, a host socket, the home directory or the key
+        run: |
+          clone=$(mktemp -d)
+          run=$(mktemp -d)
+          key=$(mktemp -d)
+          echo sk-not-a-real-key > "$key/key"
+          echo home-secret > "$HOME/gate-probe"
+          docker=(curl -sS -m 5 --unix-socket /var/run/docker.sock http://localhost/version)
+          curl -sS -m 5 -o /dev/null https://example.com
+          "${docker[@]}" -o /dev/null
+          probes='! curl -sS -m 5 https://example.com && ! curl -sS -m 5 --unix-socket /var/run/docker.sock http://localhost/version'
+          probes+=" && ! cat '$HOME/gate-probe' && ! cat '$key/key'"
+          jq -n --arg test "$probes" '{scripts: {test: $test}}' > "$run/base-package.json"
+          jq -n --arg checkout "$clone" --arg run "$run" --arg home "$HOME" --arg key "$key" \
+            '{checkout: $checkout, package_json: "\($run)/base-package.json", log: "\($run)/gates.jsonl", deny_read: [$home, $key]}' \
+            > "$run/gate.json"
+          echo '{}' | env -i PATH="$PATH" HOME="$HOME" node_modules/.bin/tsx platform/gates/stop-hook.ts "$run/gate.json"
+          cat "$run/gates.jsonl"

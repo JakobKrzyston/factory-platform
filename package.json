@@ -14,7 +14,7 @@
     "tickets": "tsx scripts/create-issues.ts",
     "typecheck": "tsc",
     "lint": "biome lint",
-    "test": "tsx --test \"platform/**/*.test.ts\"",
+    "test": "node --import tsx --test \"platform/**/*.test.ts\"",
     "runlog:migrate": "tsx --env-file-if-exists=.env.local platform/runlog/migrate.ts",
     "merge-gate": "tsx scripts/apply-rulesets.ts",
     "check-merge-gate": "tsx scripts/check-merge-gate.ts",
