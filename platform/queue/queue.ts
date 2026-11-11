@@ -97,7 +97,10 @@ function setup(repo: string): void {
 }
 
 function main([command, repo, issue, state, commentFile]: string[]): void {
-  if (command === "setup" && repo) return setup(repo);
+  if (command === "setup" && repo) {
+    setup(repo);
+    return;
+  }
   if (command === "claim" && repo && issue) {
     const refusal = claimRefusal(readIssue(repo, issue));
     if (refusal) console.error(`not claimed: ${refusal}`);
@@ -105,7 +108,10 @@ function main([command, repo, issue, state, commentFile]: string[]): void {
     console.log(refusal === null);
     return;
   }
-  if (command === "set" && repo && issue && state in STATES) return setState(repo, issue, state as State, commentFile);
+  if (command === "set" && repo && issue && state in STATES) {
+    setState(repo, issue, state as State, commentFile);
+    return;
+  }
   console.error("usage: queue setup <owner/repo> | claim <owner/repo> <issue> | set <owner/repo> <issue> <state> [comment.md]");
   process.exit(2);
 }

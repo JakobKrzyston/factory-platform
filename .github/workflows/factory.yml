@@ -59,10 +59,11 @@ jobs:
           GH_TOKEN: ${{ steps.app.outputs.token }}
           APP_SLUG: ${{ steps.app.outputs.app-slug }}
         run: |
-          # Claude Code sandboxes Bash with bubblewrap on Linux, and Ubuntu's AppArmor default
-          # blocks the user namespaces bubblewrap needs.
+          # Claude Code sandboxes Bash, and the gate sandboxes its checks, with bubblewrap on Linux
+          # (srt also needs socat and ripgrep). Ubuntu's AppArmor default blocks the user namespaces
+          # bubblewrap needs.
           sudo apt-get update -q
-          sudo apt-get install -y -q --no-install-recommends bubblewrap socat
+          sudo apt-get install -y -q --no-install-recommends bubblewrap socat ripgrep
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
           npm install -g @anthropic-ai/claude-code@2.1.322
           # run-issue.sh commits and pushes as the App.

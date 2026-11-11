@@ -22,6 +22,11 @@ Review of the PR found three things the runner changes:
 - A failed claim was hidden inside `echo "claimed=$(…)"`, so the step stayed green. It is now assigned first, and a failed claim also reports to `needs-human`.
 - The prompt was passed as one argument, which Linux caps at 128 KiB. It now goes in on stdin.
 
+TL-5's quality gate merged first. Combining the two needed three changes beyond the textual merge:
+- TL-5's stop hook would have refused a `QUESTION:` stop while any check failed. It now lets one through without running the checks, since a question opens no PR.
+- The gate runs the clone's own `tsc`, `biome` and `tsx`, and TL-5 left installing them to TL-6. `run-issue.sh` now runs `pnpm install --frozen-lockfile --ignore-scripts` in the clone before the agent starts, with only `PATH` and `HOME`.
+- The gate's `srt` sandbox needs ripgrep on Linux as well as bubblewrap and socat, so the runner installs all three.
+
 ## Happened
 
 Before merge, without a runner (GitHub runs `issues` workflows only from the default branch):
@@ -47,6 +52,11 @@ Before merge, without a runner (GitHub runs `issues` workflows only from the def
   - A local commit through the outside git directory includes the agent's files.
   - The comment filter keeps the App's question when `FACTORY_BOT` is set and drops other bots.
   - `claude -p` read a real prompt from stdin.
+- After rebasing onto TL-5:
+  - The new hook let a `QUESTION:` stop through without writing a gate line; TL-5's hook blocked the same stop with exit 2.
+  - An ordinary stop with a failing check is still blocked.
+  - Run against a fresh clone of this repository with its dependencies installed, the real stop hook passed `typecheck` and `lint`.
+  - `test` failed with `listen EPERM` on `tsx`'s IPC pipe: the checks' sandbox denies Unix sockets. Until that is fixed, factory runs here end at `needs-human`, not `in-review`.
 - Not yet checked: the workflow on a real runner (bubblewrap under the AppArmor change, the App's commit identity, the App token's permissions for the label calls) and the three acceptance criteria end to end.
 
 ## What the numbers said

@@ -73,6 +73,13 @@ COMMENTS=$(gh api --paginate "repos/$REPO/issues/$NUMBER/comments" --jq '.[]' \
 # The gate runs the scripts from this copy, out of the agent's reach, so editing
 # package.json or committing in the clone cannot change what it runs.
 if [[ -f $WORKDIR/package.json ]]; then cp "$WORKDIR/package.json" "$RUN_DIR/base-package.json"; fi
+# The checks run the clone's own tools (tsc, a linter, a test runner) with no
+# network, so install the base branch's dependencies now. Only pnpm lockfiles
+# for now. Lifecycle scripts stay off, and the install gets only PATH and HOME,
+# so no dependency's code runs with this script's credentials.
+if [[ -f $WORKDIR/pnpm-lock.yaml ]]; then
+  (cd "$WORKDIR" && env -i PATH="$PATH" HOME="$HOME" pnpm install --frozen-lockfile --ignore-scripts --silent)
+fi
 jq -n --arg checkout "$WORKDIR" --arg run_dir "$RUN_DIR" --arg home "$HOME" --arg key_dir "$KEY_DIR" \
   '{checkout: $checkout, package_json: "\($run_dir)/base-package.json", log: "\($run_dir)/gates.jsonl",
     deny_read: [$home, $key_dir]}' > "$RUN_DIR/gate.json"
