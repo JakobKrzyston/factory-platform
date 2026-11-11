@@ -18,18 +18,22 @@ The check had no way to show it. Both Apps sign the same way, and nothing in the
 
 The run does give one piece of evidence about the check itself. The ten deliveries it listed ran from 2026-11-10T04:10:06Z to 18:40:16Z, and the App had 35 in all, starting at 2026-11-09T23:08Z. A list in oldest-first order would have started at 23:08Z on 2026-11-09, so this one was newest first, as the check assumes.
 
-TODO: the run against Throughline's App. On a working link, its newest delivery should be no older than the last merge, #43, at 2026-11-11T14:47:57Z. Also the first scheduled run, which needs the `throughline` environment and the workflow on `main`.
+One more wrong-credentials case turned up along the way. An App ID paired with a different App's key gets `JSON web token could not be decoded` from GitHub. That one at least fails loudly rather than checking the wrong webhook.
+
+**The run against Throughline's App passed.** It used `throughline-reconciliation-app` (5687858; key fingerprint `SHA256:8ziq1Foog3WSQSDX29LkXm+9gD+SCDP5v3J+jmIAaPE=`) and exited 0 with both checks ok. All ten listed deliveries got 200. The oldest of them is `issues.closed` at 2026-11-11T14:48:02Z, three seconds after #43's merge (14:47:57Z) closed issue #34 (14:47:59Z). The newest is `pull_request.edited` at 15:37:01Z. The unsigned probe got Throughline's 401 `Bad signature`, so the bypass in the App's URL still gets past Vercel protection.
+
+The first run's `FAILED` lines looked exactly like a real outage. Only the App's ID showed that it was not one, and nothing printed the ID until this stage added the slug line.
+
+The scheduled workflow has not run. The `throughline` environment and its secrets are not set up, and GitHub only schedules or dispatches workflows that are on `main`. That check is owed after merge.
 
 ## What the numbers said
 
-| Measure | First run (factory App, by mistake) |
-| --- | --- |
-| App checked | 5688742, `factory-application` |
-| Deliveries listed | 10 of 35, all 401 |
-| Listed span | 2026-11-10T04:10:06Z to 18:40:16Z |
-| Probe | 401 from Vercel protection, bypass present |
-| Exit code | 1 |
-
-TODO: the same rows for Throughline's App.
+| Measure | First run (factory App, by mistake) | Second run (Throughline's App) |
+| --- | --- | --- |
+| App checked | 5688742, `factory-application` | 5687858, `throughline-reconciliation-app` |
+| Deliveries listed | 10 of 35, all 401 | 10, all 200 |
+| Listed span | 2026-11-10T04:10:06Z to 18:40:16Z | 2026-11-11T14:48:02Z to 15:37:01Z |
+| Probe | 401 from Vercel protection, bypass present | 401 `Bad signature` from Throughline |
+| Exit code | 1 | 0 |
 
 The first lesson came before any number about the webhook. A health check has to say what it checked. Otherwise a correct result about the wrong App reads as an outage.
