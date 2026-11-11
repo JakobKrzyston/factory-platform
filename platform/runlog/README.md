@@ -4,14 +4,41 @@ One row per agent run, in a table called `runs`. The schema is [`migrations/001_
 
 ```sh
 pnpm runlog:migrate   # SQLite in .runlog/, or Postgres when DATABASE_URL is set (.env.local is read if present)
-pnpm test             # applies the migration to a throwaway SQLite file and exercises the table
+pnpm test             # applies the migration to a throwaway SQLite file and exercises the table and the writer
+```
+
+`runlog.ts` writes the rows. `scripts/run-issue.sh` and `.github/workflows/factory.yml` call it; it applies any pending migration before it writes, so a fresh database needs no separate step.
+
+```sh
+tsx platform/runlog/runlog.ts start <id> <factory> <role> <factory_sha> <model> <owner/repo> <issue>
+tsx platform/runlog/runlog.ts finish <id> <done|needs_human|failed> [run-dir]
+tsx platform/runlog/runlog.ts rework <owner/repo> <issue>
 ```
 
 A migration runs once: applied versions are recorded in `schema_migrations`. To change the schema, add `002_<name>.sql`; never edit a file that has been applied.
 
+## The cloud database
+
+The cloud run log is a database called `runlog` in the Neon project `factory-platform`, on its `main` branch, next to Throughline's own `neondb`. It is owned by `runlog_writer`, a role created in SQL rather than in the Neon console. Console and API roles join `neon_superuser`, which can read every database; this one cannot read or create anything in `neondb`. Its connection string is the `DATABASE_URL` secret of the `factory` GitHub environment. Run as the project's owner role:
+
+```sql
+CREATE ROLE runlog_writer LOGIN PASSWORD '<generated>';
+GRANT runlog_writer TO CURRENT_USER;  -- CREATE DATABASE ... OWNER needs it
+CREATE DATABASE runlog OWNER runlog_writer;
+```
+
+Then `DATABASE_URL=postgresql://runlog_writer:<password>@<host>/runlog?sslmode=require pnpm runlog:migrate`.
+
 ## Lifecycle of a row
 
-The writer (TL-12) inserts the row when the run starts, with `status = 'running'` and the identity columns. When the run ends it sets the outcome, the measurements and `ended_at` in one update. `rework` is filled in later still, when the PR merges. A row still `running` long after its start is a run that died without reporting: the evidence TL-12's "finished row or failure row" check looks for.
+1. **Start.** `run-issue.sh` inserts the row before it does anything that can fail (clone, key file, agent), with `status = 'running'` and the identity columns. `model` is the model the script asked for, such as `sonnet`, until the run ends.
+2. **End.** The script's `EXIT` trap ends the row on every exit, in one update: `done` when it opened a PR, `needs_human` when the agent asked a question, `failed` otherwise. The measurements come from the run directory: tokens, cost and the resolved model ID from `transcript.jsonl`; `checks_passed`, `pr` and `head_sha` from `run.json`.
+3. **Fallback.** On Actions, the workflow's last step ends the row as `failed` if it is still `running`: the script was killed, cancelled or timed out before its trap ran. `finish` leaves a row that has already ended alone, so this step is safe to run every time.
+4. **Rework.** When the issue closes as completed, the workflow's `done` job runs `rework`: for each merged PR of the issue's runs, `rework` is true if the PR's head at merge is not the `head_sha` the last run on it handed off.
+
+A row still `running` long after its start is a run that died without reporting. A workflow run with no row at all is one whose script never got as far as inserting it, which happens only if the run log itself was unreachable; the run then stops before the agent starts. Joining the two by id (`github-<run id>-<attempt>`) is how TL-12's "every run has a finished row or a failure row" is checked.
+
+Tokens and cost are what Claude Code reports: the result line's `modelUsage`, summed over every model the run called, and its `total_cost_usd`, which is the cost of exactly those tokens. A run killed before its result line has its tokens counted from the transcript's assistant messages, once per message ID, and `cost_usd` null.
 
 ## Reconstructing a run
 
@@ -21,11 +48,11 @@ The row says what ran (`factory` and `role` at `factory_sha`, on `model`), on wh
 
 | Column | Type | Null while running | Meaning |
 | --- | --- | --- | --- |
-| `id` | text | no | A UUID the writer generates. Text rather than an auto-increment so the same id works in SQLite and Postgres, and rows from a local run and a cloud run never collide. |
+| `id` | text | no | `github-<run id>-<attempt>` for a run the factory workflow started, so the row joins to its Actions run; otherwise a UUID `run-issue.sh` generates. Text rather than an auto-increment so the same id works in SQLite and Postgres, and rows from a local run and a cloud run never collide. |
 | `factory` | text | no | The factory directory name under `factories/`, such as `code`. |
 | `role` | text | no | The agent role within the factory, the folder name under `agents/`, such as `triage` or `implementer`. |
 | `factory_sha` | text | no | The commit of this repository whose factory definition ran. Without it a row cannot say which prompt, model setting and gates produced the result, and two benchmark runs of different definitions would look identical. |
-| `model` | text | no | The model ID the harness ran, such as `claude-opus-5-5`. Recorded per run because the agent file can change between runs. |
+| `model` | text | no | The model ID the harness ran, such as `claude-opus-5-5`, from the transcript's first line. Until the run ends, or if it ended before the harness started, the model it asked for, such as `sonnet`. Recorded per run because the agent file can change between runs. |
 | `repo` | text | no | `owner/name` of the repository the issue and PR belong to. Makes `issue` and `pr` links rather than bare numbers. |
 | `issue` | integer | no | The GitHub issue number the run worked on. |
 | `pr` | integer | yes | The pull request number the run opened, pushed to or reviewed. Stays null for runs that never touch a PR, such as triage or a run that failed first. |

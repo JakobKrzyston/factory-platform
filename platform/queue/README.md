@@ -14,8 +14,8 @@ The factory's work queue is GitHub issue labels. An issue's one `factory:*` labe
 
 `.github/workflows/factory.yml` runs on every `issues` event:
 
-- **`factory:ready` added**: the `run` job claims the issue (`ready` to `in-progress`), runs `scripts/run-issue.sh` on it, and moves it to `in-review` if a PR opened or to `needs-human` with a comment otherwise. A run that times out or is cancelled also ends at `needs-human`. The run's settings, transcript and `run.json` are uploaded as an artifact.
-- **Issue closed as completed while `in-review`**: the `done` job moves it to `done`. The factory's PR says `Closes #N`, so merging it does this.
+- **`factory:ready` added**: the `run` job prepares the runner, claims the issue (`ready` to `in-progress`), runs `scripts/run-issue.sh` on it, and moves it to `in-review` if a PR opened or to `needs-human` with a comment otherwise. A run that times out or is cancelled also ends at `needs-human`. The runner is prepared before the claim, so a runner that cannot be set up leaves the issue queued and every claimed run reaches the script, which writes its run log row first (TL-12, `platform/runlog/README.md`). The run's settings, transcript and `run.json` are uploaded as an artifact.
+- **Issue closed as completed while `in-review`**: the `done` job moves it to `done` and records on the issue's runs whether a human changed the PR before merging (`rework`). The factory's PR says `Closes #N`, so merging it does this.
 
 `needs-human` is a state, not a failure. When the agent cannot go on without a person's decision, it ends its run with `QUESTION:` and the question. The quality gate's stop hook (TL-5) lets that stop through without running the checks. `run-issue.sh` then exits 3, and the workflow posts the question as a comment. To answer, reply on the issue and add `factory:ready` again. The next run's prompt includes comments from the owner, members and collaborators, the people who can add labels, and from the factory App itself, so the question sits beside its answer. Nobody else's comments reach the agent. The issue body does, whoever wrote it, so it is treated as untrusted and the run's confinement is what makes that safe.
 
@@ -34,7 +34,10 @@ pnpm queue setup <owner/repo>            # labels and the factory environment; n
 gh secret set ANTHROPIC_API_KEY --env factory --repo <owner/repo>
 gh secret set FACTORY_APP_PRIVATE_KEY --env factory --repo <owner/repo> < factory-app.pem
 gh variable set FACTORY_APP_ID --env factory --repo <owner/repo> --body <app-id>
+gh secret set DATABASE_URL --env factory --repo <owner/repo>      # the run log's Neon connection string
 ```
+
+Without `DATABASE_URL` the run log is a SQLite file on the runner, uploaded with the run's artifact and in no shared table.
 
 The factory App (TL-10) must be installed on the repository with read-write Contents, Issues and Pull requests.
 
