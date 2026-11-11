@@ -8,7 +8,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import postgres from "postgres";
 
 const MIGRATIONS_DIR = join(dirname(fileURLToPath(import.meta.url)), "migrations");
-const DEFAULT_SQLITE_PATH = ".runlog/runlog.db";
+export const DEFAULT_SQLITE_PATH = ".runlog/runlog.db";
 const TRACKING_TABLE = "CREATE TABLE IF NOT EXISTS schema_migrations (version TEXT PRIMARY KEY)";
 
 type Migration = { version: string; sql: string };
