@@ -42,10 +42,11 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      # Retries: since 11 November, Azure's resolver often times out on the Ubuntu mirrors' names (#41).
       - name: Prepare the sandbox
         run: |
-          sudo apt-get update -q
-          sudo apt-get install -y -q --no-install-recommends bubblewrap socat ripgrep
+          sudo apt-get update -q -o Acquire::Retries=5
+          sudo apt-get install -y -q --no-install-recommends -o Acquire::Retries=5 bubblewrap socat ripgrep
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
       # As run-issue.sh does: a fresh clone outside the home directory, its dependencies installed, and the hook
       # started with only PATH and HOME.
