@@ -47,7 +47,7 @@ The factory-platform repository is connected through the GitHub App. A merged pu
 
 ### TL-3: Throughline MCP server for factory agents
 
-feature · agents · 2027-Q1
+feature · agents · 2027-Q1 · done
 
 An MCP server over Throughline's API so a factory agent can read the requirement it is implementing and post its own link proposal, instead of a person editing PR descriptions by hand. Closes the loop between the two systems (throughline-roadmap issue #71).
 
@@ -66,7 +66,7 @@ Add a label to a GitHub issue and walk away. A triage agent sizes it, a spec age
 
 ### TL-4: Run one agent non-interactively from a script
 
-infrastructure · agents · 2026-Q4
+infrastructure · agents · 2026-Q4 · done
 
 A shell script that gives Claude Code one issue and gets one pull request back, with permissions and sandboxing settled so nobody is watching the terminal. The baseline every later stage is measured against.
 
@@ -78,7 +78,7 @@ A shell script that gives Claude Code one issue and gets one pull request back, 
 
 ### TL-5: Quality gates the agent cannot skip
 
-infrastructure · platform · 2026-Q4
+infrastructure · platform · 2026-Q4 · done
 
 Type checks, lint and tests enforced through Claude Code hooks, so a run cannot finish while a check fails. Guidance in prompts makes good output likely; gates make bad output impossible to hand in.
 
@@ -90,7 +90,7 @@ Type checks, lint and tests enforced through Claude Code hooks, so a run cannot 
 
 ### TL-6: Label-driven work queue on GitHub Actions
 
-feature · platform · 2026-Q4
+feature · platform · 2026-Q4 · done
 
 A workflow fires when an issue gets the `factory:ready` label and moves it through `in-progress`, `in-review`, `needs-human` and `done`. Labels are the state machine, and asking a human is one of the states rather than a failure.
 
@@ -136,7 +136,7 @@ Every human review comment is captured into `standards/` so the same comment nev
 
 ### TL-10: Human merge gate
 
-security · platform · 2026-Q4
+security · platform · 2026-Q4 · done
 
 Branch protection ensures no factory PR merges without a human approval, however good the automated review was.
 
@@ -155,7 +155,7 @@ Each agent run leaves a row: what it cost, how long it took, which checks passed
 
 ### TL-11: Run log schema
 
-infrastructure · measurement · 2027-Q1
+infrastructure · measurement · 2027-Q1 · done
 
 A table (SQLite locally, Neon in the cloud) with one row per agent run: factory, role, issue, model, input and output tokens, cost, wall time, checks passed, review findings and a rework flag set when a human changed the PR before merging.
 
