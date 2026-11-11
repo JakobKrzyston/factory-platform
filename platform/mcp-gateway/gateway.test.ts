@@ -98,6 +98,17 @@ test("a redirect to Vercel sign-in is a gateway error, not followed", async () =
   assert.match((await response.json()).error, /bypass secret/);
 });
 
+test("Vercel's own 401 is a gateway error, not a bad token", async () => {
+  reply = {
+    status: 401,
+    headers: { "content-type": "application/json", "set-cookie": "_vercel_sso_nonce=abc; Path=/" },
+    body: '{"protection":{"vercel_auth_enabled":true}}',
+  };
+  const response = await POST(mcpRequest());
+  assert.equal(response.status, 502);
+  assert.match((await response.json()).error, /bypass secret/);
+});
+
 test("refuses to forward without its configuration", async () => {
   delete process.env.THROUGHLINE_BYPASS_SECRET;
   const response = await POST(mcpRequest());

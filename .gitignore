@@ -5,3 +5,4 @@ node_modules/
 
 # wt local config (per-machine paths)
 .wt.toml
+.vercel/

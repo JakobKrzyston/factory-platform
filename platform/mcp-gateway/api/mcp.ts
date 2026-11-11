@@ -18,9 +18,8 @@ const FORWARDED_HEADERS = [
  *   request: A JSON-RPC message from an MCP client, with `Authorization: Bearer <MCP_TOKEN>`.
  *
  * Returns:
- *   503 when the gateway is not configured, 502 when Throughline cannot be reached or redirects
- *   (a redirect means Vercel protection refused the bypass), otherwise Throughline's status and body
- *   with only its content type.
+ *   503 when the gateway is not configured, 502 when Throughline cannot be reached or Vercel
+ *   protection refused the bypass, otherwise Throughline's status and body with only its content type.
  */
 export async function POST(request: Request): Promise<Response> {
   const base = process.env.THROUGHLINE_URL;
@@ -49,9 +48,14 @@ export async function POST(request: Request): Promise<Response> {
   } catch {
     return Response.json({ error: "Throughline is unreachable" }, { status: 502 });
   }
-  if (upstream.status >= 300 && upstream.status < 400) {
+  // Vercel refuses a POST without a valid bypass with a 401 that starts a sign-in (the nonce cookie),
+  // and a GET with a redirect. Either would otherwise reach the caller looking like a bad token.
+  const refusedByVercel =
+    (upstream.status >= 300 && upstream.status < 400) ||
+    (upstream.status === 401 && upstream.headers.get("set-cookie")?.includes("_vercel_sso_nonce"));
+  if (refusedByVercel) {
     return Response.json(
-      { error: "Throughline redirected: the bypass secret is wrong or revoked" },
+      { error: "Vercel protection refused the gateway: the bypass secret is wrong or revoked" },
       { status: 502 },
     );
   }
