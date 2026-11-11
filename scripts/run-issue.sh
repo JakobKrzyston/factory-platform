@@ -11,7 +11,9 @@
 # otherwise SQLite in .runlog/. Set RUN_LOG_ID to choose the row's id.
 #
 # Exit status: 0 with the PR's URL on stdout; 3 with the agent's question on
-# stdout when it stopped to ask one; anything else means no PR.
+# stdout when it stopped to ask one; 4 when the PR opened but its description
+# lacks its risk or evidence (TL-8), with the PR's URL on the first line of stdout
+# and one problem per line after it; anything else means no PR.
 set -euo pipefail
 
 FACTORY=code
@@ -166,7 +168,13 @@ If the project has tests, run them before you finish. \
 When you try to finish, a gate runs the project's typecheck, lint and test scripts; while any fails, it tells you which and you keep working. \
 If you cannot finish without a decision only a person can make, do not guess: stop, and make your final message \
 start with QUESTION: followed by the one question you need answered. Asking discards your changes. \
-End with a short summary for the pull request description: what changed, how you checked it, and anything left undone."
+Otherwise your final message is the pull request description, written as this skill says:
+
+$(cat "$ROOT/factories/code/skills/pr-description/SKILL.md")
+
+The pull request template:
+
+$(cat "$ROOT/.github/pull_request_template.md")"
 
 jq -n \
   --arg run_id "$RUN_ID" --arg run_log_id "$RUN_LOG_ID" --arg issue "$ISSUE_URL" --arg repo "$REPO" \
@@ -272,6 +280,11 @@ Opened unattended by \`scripts/run-issue.sh\` in [factory-platform](https://gith
 $(jq -r '"| Run | `\(.run_id)` |\n| --- | --- |\n| Model | \(.model_id) |\n| Tools | \(.tools | join(", ")) (Read and Edit limited to the clone, Bash sandboxed) |\n| Checks | \(if .checks == [] then "none defined" else (.checks | map(.name) | join(", ")) + " passed" end); \(.gate_failures) of \(.gate_attempts) attempts to finish refused |\n| Time limit | \(.time_limit_seconds)s |\n| Turns | \(.num_turns) |\n| Agent time | \(.duration_ms / 1000 | floor)s |\n| Cost | $\(.cost_usd * 100 | round / 100) |"' "$RUN_DIR/run.json")
 
 Closes #$NUMBER"
+# Checks the agent's part only: the footer above would count as text under its last section.
+DESCRIPTION_PROBLEMS=$(jq -r '.result // ""' <<<"$RESULT" \
+  | (cd "$ROOT" && node_modules/.bin/tsx platform/gates/pr-description.ts))
+jq --arg problems "$DESCRIPTION_PROBLEMS" '. + {description_problems: ($problems | split("\n") | map(select(. != "")))}' \
+  "$RUN_DIR/run.json" > "$RUN_DIR/run.json.tmp" && mv "$RUN_DIR/run.json.tmp" "$RUN_DIR/run.json"
 
 repo_git add -A
 repo_git commit --quiet -m "Resolve #$NUMBER: $TITLE"
@@ -282,5 +295,12 @@ PR_URL=$(gh pr create --repo "$REPO" --draft --base "$BASE" --head "$BRANCH" \
 # head_sha is what the run handed off; rework compares the merged PR against it.
 jq --arg pr "$PR_URL" --arg head_sha "$(repo_git rev-parse HEAD)" '. + {pr: $pr, head_sha: $head_sha}' \
   "$RUN_DIR/run.json" > "$RUN_DIR/run.json.tmp" && mv "$RUN_DIR/run.json.tmp" "$RUN_DIR/run.json"
-OUTCOME=done
 echo "$PR_URL"
+# The PR stays open so a person can fill in what is missing rather than pay for a rerun.
+if [[ -n $DESCRIPTION_PROBLEMS ]]; then
+  echo "run $RUN_ID: the pull request's description is incomplete; see $RUN_DIR" >&2
+  printf '%s\n' "$DESCRIPTION_PROBLEMS"
+  OUTCOME=needs_human
+  exit 4
+fi
+OUTCOME=done

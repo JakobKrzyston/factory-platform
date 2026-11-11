@@ -8,13 +8,14 @@ The factory's work queue is GitHub issue labels. An issue's one `factory:*` labe
                       ▲                         │                                      PR merged,
                       │                         ▼                                      issue closed
                       └──── human answers ── factory:needs-human
-                            and re-adds          question, failure or timeout,
-                            factory:ready        with a comment saying which
+                            and re-adds          question, failure, timeout, or a PR
+                            factory:ready        missing its risk or evidence, with a
+                                                 comment saying which
 ```
 
 `.github/workflows/factory.yml` runs on every `issues` event:
 
-- **`factory:ready` added**: the `run` job claims the issue (`ready` to `in-progress`), prepares the runner, runs `scripts/run-issue.sh` on it, and moves it to `in-review` if a PR opened or to `needs-human` with a comment otherwise. A run that times out, is cancelled or whose runner cannot be set up also ends at `needs-human`. The script writes the run's row in the run log (TL-12, `platform/runlog/README.md`). The run's settings, transcript and `run.json` are uploaded as an artifact.
+- **`factory:ready` added**: the `run` job claims the issue (`ready` to `in-progress`), prepares the runner, runs `scripts/run-issue.sh` on it, and moves it to `in-review` if a PR opened or to `needs-human` with a comment otherwise. A PR whose description does not state its risk and evidence (TL-8, `factories/code/skills/pr-description/SKILL.md`) also goes to `needs-human`, with a comment listing what is missing; once a person fills it in, they replace the label with `factory:in-review`. A run that times out, is cancelled or whose runner cannot be set up also ends at `needs-human`. The script writes the run's row in the run log (TL-12, `platform/runlog/README.md`). The run's settings, transcript and `run.json` are uploaded as an artifact.
 - **Issue closed as completed while `in-review`**: the `done` job moves it to `done` and records on the issue's runs whether a human changed the PR before merging (`rework`). The factory's PR says `Closes #N`, so merging it does this.
 
 `needs-human` is a state, not a failure. When the agent cannot go on without a person's decision, it ends its run with `QUESTION:` and the question. The quality gate's stop hook (TL-5) lets that stop through without running the checks. `run-issue.sh` then exits 3, and the workflow posts the question as a comment. To answer, reply on the issue and add `factory:ready` again. The next run's prompt includes comments from the owner, members and collaborators, the people who can add labels, and from the factory App itself, so the question sits beside its answer. Nobody else's comments reach the agent. The issue body does, whoever wrote it, so it is treated as untrusted and the run's confinement is what makes that safe.

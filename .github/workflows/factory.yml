@@ -101,13 +101,23 @@ jobs:
               echo "Answer in a comment here, then add \`factory:ready\` again. [Run log]($RUN_URL)"
             } > "$comment"
             pnpm exec tsx platform/queue/queue.ts set "$REPO" "$ISSUE" needs-human "$comment"
+          elif [[ $code -eq 4 ]]; then
+            # TL-8: a pull request that does not state its risk and evidence is not ready for review.
+            {
+              echo "The factory opened $(head -n 1 "$RUNNER_TEMP/out"), but its description is not ready for review:"
+              echo
+              tail -n +2 "$RUNNER_TEMP/out" | sed 's/^/- /'
+              echo
+              echo "Fill in the missing sections on the pull request, then replace \`factory:needs-human\` with \`factory:in-review\`. Or close the pull request and add \`factory:ready\` to run again. [Run log]($RUN_URL)"
+            } > "$comment"
+            pnpm exec tsx platform/queue/queue.ts set "$REPO" "$ISSUE" needs-human "$comment"
           else
             echo "The factory run ended without a pull request (exit $code). See the [run log]($RUN_URL), then add \`factory:ready\` to try again." > "$comment"
             pnpm exec tsx platform/queue/queue.ts set "$REPO" "$ISSUE" needs-human "$comment"
           fi
           echo "reported=true" >> "$GITHUB_OUTPUT"
-          # A question is a state, not a failure; anything else turns the Actions run red.
-          [[ $code -eq 0 || $code -eq 3 ]]
+          # A question or an incomplete description is a state, not a failure; anything else turns the Actions run red.
+          [[ $code -eq 0 || $code -eq 3 || $code -eq 4 ]]
 
       # A run that times out, is cancelled or breaks before reporting must not stay in-progress,
       # and a claim that failed partway may have left the labels half changed.

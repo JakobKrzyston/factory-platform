@@ -69,6 +69,14 @@ Tested by: TL-5 (`docs/notes/05-quality-gates.md`). CI runs the same `typecheck`
 
 Tested by: TL-7, then the benchmark in TL-15.
 
+### A pull request states its risk and evidence, or a person sees it first (TL-8)
+
+The repository's one pull request template, `.github/pull_request_template.md`, is also the factory's: What was built, How to try it, Risk (one-way or two-way door, blast radius) and Evidence. Its hints are HTML comments, so an unfilled section reads as empty. The guidance is a shared skill, `factories/code/skills/pr-description/SKILL.md`, with one part for the implementer and one for the reviewer. `run-issue.sh` puts the skill and the template in the implementer's system prompt, and the agent's final message becomes the description. The gate is `platform/gates/pr-description.ts`, which `run-issue.sh` runs on that message, not on the whole body, whose footer would otherwise count as text under the last section. A missing or empty Risk or Evidence section, or a Risk that names no door or blast radius, still opens the draft PR. A person can fill in a section for less than a rerun costs. The script then exits 4, and the workflow labels the issue `needs-human` with a comment listing what is missing. `run.json` records `description_problems`.
+
+The check runs after the agent has finished, not in the stop hook, so the agent cannot fix its own description. Moving it into the stop hook would make an incomplete description impossible to hand in at all; the first live runs will show whether that is worth the extra turns.
+
+Tested by: TL-8 (`docs/notes/08-self-explaining-prs.md`).
+
 ### Humans merge: two rulesets and a factory App (TL-10)
 
 The factory acts on GitHub as its own GitHub App, never as the owner and never through Actions' `GITHUB_TOKEN`. An owner token would make the owner the PR author, and GitHub does not let authors approve their own PRs, so the one human here could never approve factory work. `GITHUB_TOKEN` is ruled out twice: PRs it opens do not trigger workflows, so the required check would never run, and letting it open PRs also lets it approve them. The App gets read-write Contents, Pull requests and Issues, and nothing else: without Workflows it cannot edit `.github/workflows`, and without Checks or Commit statuses it cannot post a green check of its own.
