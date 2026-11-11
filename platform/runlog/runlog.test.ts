@@ -117,6 +117,15 @@ test("a run that opened a PR ends done with its measurements", async () => {
   );
 });
 
+test("a review run records its findings on the PR it reviewed", async () => {
+  const db = await freshLog();
+  await startRun(db, { ...RUN, role: "review" });
+  const dir = runDir({ "run.json": JSON.stringify({ pr: "https://x/pull/47", head_sha: "4dda246c", review_findings: 3 }) });
+  assert.equal(await finishRun(db, RUN.id, "done", dir), true);
+  const [row] = await db.query("SELECT role, pr, head_sha, review_findings, checks_passed FROM runs");
+  assert.deepEqual({ ...row }, { role: "review", pr: 47, head_sha: "4dda246c", review_findings: 3, checks_passed: null });
+});
+
 test("a fallback finish leaves an ended row alone, and a run that never started anything still ends", async () => {
   const db = await freshLog();
   await startRun(db, RUN);

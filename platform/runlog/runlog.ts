@@ -134,7 +134,8 @@ export function measure(transcript: string): Measurements {
  *    db: the run log.
  *    id: the row's id.
  *    status: `done`, `needs_human` or `failed`.
- *    runDir: run-issue.sh's .runlog/runs/<run-id>/, read for transcript.jsonl and run.json when present.
+ *    runDir: run-issue.sh's .runlog/runs/<run-id>/, read for transcript.jsonl and run.json when present. A review
+ *      run's run.json carries `review_findings`.
  *  Returns: true if this call ended the row, false if it had already ended or another call ended it first.
  *  Raises: if there is no row with this id. */
 export async function finishRun(db: RunLog, id: string, status: string, runDir?: string): Promise<boolean> {
@@ -144,13 +145,16 @@ export async function finishRun(db: RunLog, id: string, status: string, runDir?:
 
   const file = (name: string) => (runDir && existsSync(join(runDir, name)) ? readFileSync(join(runDir, name), "utf8") : "");
   const m = measure(file("transcript.jsonl"));
-  const run: { checks_passed?: boolean; pr?: string; head_sha?: string } = JSON.parse(file("run.json") || "{}");
+  const run: { checks_passed?: boolean; pr?: string; head_sha?: string; review_findings?: number } = JSON.parse(
+    file("run.json") || "{}",
+  );
   const endedAt = new Date();
   const wallSeconds = Math.round((endedAt.getTime() - new Date(row.started_at as string).getTime()) / 1000);
 
   const ended = await db.query(
     `UPDATE runs SET status = ?, ended_at = ?, wall_seconds = ?, model = COALESCE(?, model), pr = ?, head_sha = ?,
-       input_tokens = ?, output_tokens = ?, cache_read_tokens = ?, cache_write_tokens = ?, cost_usd = ?, checks_passed = ?
+       input_tokens = ?, output_tokens = ?, cache_read_tokens = ?, cache_write_tokens = ?, cost_usd = ?, checks_passed = ?,
+       review_findings = ?
      WHERE id = ? AND status = 'running' RETURNING id`,
     [
       status,
@@ -165,6 +169,7 @@ export async function finishRun(db: RunLog, id: string, status: string, runDir?:
       m.cache_write_tokens,
       m.cost_usd,
       run.checks_passed ?? null,
+      run.review_findings ?? null,
       id,
     ],
   );

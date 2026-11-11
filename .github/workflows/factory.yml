@@ -1,5 +1,6 @@
-# The work queue (TL-6). Adding `factory:ready` to an issue starts one unattended run on it, and the
-# issue's factory:* label is its state from then on. See platform/queue/README.md.
+# The work queue (TL-6) and its chain of agents (TL-7). Adding `factory:ready` to an issue starts the triage
+# agent; each agent that succeeds adds the label that starts the next: spec, implement, review. The issue's
+# factory:* label is its state throughout. See platform/queue/README.md.
 name: Factory
 on:
   issues:
@@ -9,7 +10,10 @@ permissions:
 
 jobs:
   run:
-    if: github.event.action == 'labeled' && github.event.label.name == 'factory:ready'
+    # The labels that queue a role, from STAGES in platform/queue/queue.ts.
+    if: >-
+      github.event.action == 'labeled'
+      && contains(fromJSON('["factory:ready", "factory:spec", "factory:implement", "factory:review"]'), github.event.label.name)
     runs-on: ubuntu-latest
     # The secrets live in an environment that deploys from main only, so a workflow running a
     # factory branch's code cannot read them (#33).
@@ -23,6 +27,7 @@ jobs:
       REPO: ${{ github.repository }}
       ISSUE: ${{ github.event.issue.number }}
       ISSUE_URL: ${{ github.event.issue.html_url }}
+      STAGE: ${{ github.event.label.name }}
       RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
       # The run's row in the run log (platform/runlog/), named after this Actions run so the two join.
       RUN_LOG_ID: github-${{ github.run_id }}-${{ github.run_attempt }}
@@ -46,13 +51,22 @@ jobs:
           permission-issues: write
           permission-pull-requests: write
 
+      # The role this label queues, and the state its success moves the issue to.
+      - name: Read the stage
+        id: stage
+        run: |
+          STAGE=${STAGE#factory:}
+          echo "stage=$STAGE" >> "$GITHUB_OUTPUT"
+          pnpm exec tsx platform/queue/queue.ts stage "$STAGE" >> "$GITHUB_OUTPUT"
+
       - name: Claim the issue
         id: claim
         env:
           GH_TOKEN: ${{ steps.app.outputs.token }}
+          STAGE: ${{ steps.stage.outputs.stage }}
         # Assigned first so a failed claim fails the step; inside echo's arguments it would not.
         run: |
-          claimed=$(pnpm exec tsx platform/queue/queue.ts claim "$REPO" "$ISSUE")
+          claimed=$(pnpm exec tsx platform/queue/queue.ts claim "$REPO" "$ISSUE" "$STAGE")
           echo "claimed=$claimed" >> "$GITHUB_OUTPUT"
 
       # After the claim, so a run that finds nothing to claim stops without installing anything, and a
@@ -73,7 +87,7 @@ jobs:
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
           if [[ -f /etc/apparmor.d/bwrap-userns-restrict ]]; then sudo apparmor_parser -R /etc/apparmor.d/bwrap-userns-restrict; fi
           npm install -g @anthropic-ai/claude-code@2.1.322
-          # run-issue.sh commits and pushes as the App.
+          # run-issue.sh commits and pushes as the App (implement).
           gh auth setup-git
           git config --global user.name "$APP_SLUG[bot]"
           git config --global user.email "$(gh api "users/$APP_SLUG%5Bbot%5D" --jq .id)+$APP_SLUG[bot]@users.noreply.github.com"
@@ -86,23 +100,39 @@ jobs:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           FACTORY_BOT: ${{ steps.app.outputs.app-slug }}[bot]
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          STAGE: ${{ steps.stage.outputs.stage }}
+          ROLE: ${{ steps.stage.outputs.role }}
+          NEXT: ${{ steps.stage.outputs.next }}
         run: |
           code=0
-          scripts/run-issue.sh "$ISSUE_URL" > "$RUNNER_TEMP/out" || code=$?
+          scripts/run-issue.sh "$ROLE" "$ISSUE_URL" > "$RUNNER_TEMP/out" || code=$?
           comment=$RUNNER_TEMP/comment.md
+          # The comment goes up before the next label, so the triage note and the spec are on the issue
+          # before the role that reads them starts.
           if [[ $code -eq 0 ]]; then
-            pnpm exec tsx platform/queue/queue.ts set "$REPO" "$ISSUE" in-review
+            case $ROLE in
+              # Only the spec's comment may start with the spec marker, so the triage note gets a heading.
+              triage)
+                { echo "**Triage**"; echo; cat "$RUNNER_TEMP/out"; echo; echo "_The factory's triage agent. [Run log]($RUN_URL)_"; } > "$comment" ;;
+              spec)
+                { cat "$RUNNER_TEMP/out"; echo; echo "_The factory's spec agent. [Run log]($RUN_URL)_"; } > "$comment" ;;
+              implement)
+                echo "The implement agent opened $(cat "$RUNNER_TEMP/out"). [Run log]($RUN_URL)" > "$comment" ;;
+              review)
+                echo "The review agent commented on $(cat "$RUNNER_TEMP/out"). A human reviews and merges. [Run log]($RUN_URL)" > "$comment" ;;
+            esac
+            pnpm exec tsx platform/queue/queue.ts set "$REPO" "$ISSUE" "$NEXT" "$comment"
           elif [[ $code -eq 3 ]]; then
             {
-              echo "The factory stopped to ask a question:"
+              echo "The factory's $ROLE agent stopped to ask a question:"
               echo
               sed 's/^/> /' "$RUNNER_TEMP/out"
               echo
-              echo "Answer in a comment here, then add \`factory:ready\` again. [Run log]($RUN_URL)"
+              echo "Answer in a comment here, then add \`factory:$STAGE\` again. [Run log]($RUN_URL)"
             } > "$comment"
             pnpm exec tsx platform/queue/queue.ts set "$REPO" "$ISSUE" needs-human "$comment"
           else
-            echo "The factory run ended without a pull request (exit $code). See the [run log]($RUN_URL), then add \`factory:ready\` to try again." > "$comment"
+            echo "The factory's $ROLE agent failed (exit $code). See the [run log]($RUN_URL), then add \`factory:$STAGE\` to try this step again." > "$comment"
             pnpm exec tsx platform/queue/queue.ts set "$REPO" "$ISSUE" needs-human "$comment"
           fi
           echo "reported=true" >> "$GITHUB_OUTPUT"
@@ -119,7 +149,7 @@ jobs:
           GH_TOKEN: ${{ steps.app.outputs.token }}
           JOB_STATUS: ${{ job.status }}
         run: |
-          echo "The factory run stopped before it could report ($JOB_STATUS). See the [run log]($RUN_URL), then add \`factory:ready\` to try again." > "$RUNNER_TEMP/comment.md"
+          echo "The factory run stopped before it could report ($JOB_STATUS). See the [run log]($RUN_URL), then add \`$STAGE\` to try this step again." > "$RUNNER_TEMP/comment.md"
           pnpm exec tsx platform/queue/queue.ts set "$REPO" "$ISSUE" needs-human "$RUNNER_TEMP/comment.md"
 
       # run-issue.sh ends its own row. This catches a script that was killed or cancelled first, and does
@@ -134,17 +164,21 @@ jobs:
       - uses: actions/upload-artifact@v7
         if: always() && steps.claim.outputs.claimed == 'true'
         with:
-          name: run-issue-${{ github.event.issue.number }}-${{ github.run_id }}-${{ github.run_attempt }}
+          name: run-issue-${{ github.event.issue.number }}-${{ steps.stage.outputs.role }}-${{ github.run_id }}-${{ github.run_attempt }}
           # .runlog/ also holds runlog.db, the run log itself when DATABASE_URL is not set.
           path: .runlog/
           include-hidden-files: true
           if-no-files-found: ignore
 
-  # The factory's PR says "Closes #N", so merging it closes the issue as completed.
+  # The factory's PR says "Closes #N", so merging it closes the issue as completed. A human may merge before the
+  # review agent has finished, or after it failed, so every state a PR can be open in counts.
   done:
     if: >-
       github.event.action == 'closed' && github.event.issue.state_reason == 'completed'
-      && contains(github.event.issue.labels.*.name, 'factory:in-review')
+      && (contains(github.event.issue.labels.*.name, 'factory:in-review')
+        || contains(github.event.issue.labels.*.name, 'factory:review')
+        || contains(github.event.issue.labels.*.name, 'factory:in-progress')
+        || contains(github.event.issue.labels.*.name, 'factory:needs-human'))
     runs-on: ubuntu-latest
     environment: factory
     steps:

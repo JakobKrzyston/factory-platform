@@ -55,7 +55,7 @@ How it is built (`platform/gates/`):
 - **The script trusts the gate's log, not the agent.** Each attempt to finish appends a line to `gates.jsonl` in the run directory. `run-issue.sh` opens a PR only when the last line passed. A hook that crashed or timed out (600 s; 180 s per check) leaves no passing line, so it fails closed. `run.json` records `checks_passed`, `checks`, `gate_attempts` and `gate_failures`.
 - **Lint is Biome** (`biome lint`, recommended rules), one pinned binary. `biome.json` only makes it honour `.gitignore`, so local run logs are not linted. Errors fail the check and warnings are only shown.
 
-The gate stops an agent from handing in work that fails. It does not stop an agent that sets out to fool it: editing a test until it passes shows up in the diff, but a fake `node_modules/.bin/node` (now sandboxed, but still able to fake a pass) is git-ignored and would not. Catching that is review's job (TL-7) or a later gate. Known gaps, left for later stages:
+The gate stops an agent from handing in work that fails. It does not stop an agent that sets out to fool it: editing a test until it passes shows up in the diff, but a fake `node_modules/.bin/node` (now sandboxed, but still able to fake a pass) is git-ignored and would not. Catching that is review's job (TL-7, which sees the diff but not git-ignored files) or a later gate. Known gaps, left for later stages:
 - TL-6 installs the clone's dependencies before the agent starts, but only from a pnpm lockfile, so repositories using another package manager still fail any check that needs a dependency.
 - `tsx`'s CLI cannot run in the checks' sandbox: it opens a Unix socket for IPC, and the sandbox denies Unix sockets. `node --import tsx` loads the same compiler without the socket, so this repository's `test` script uses it (#41). Allowing the socket was rejected: on Linux `srt` can allow all Unix sockets or none, and all would include Docker's, which is root on GitHub's runners. A target repository whose checks call `tsx` directly still fails the gate.
 - Files the checks write into the clone end up in the PR.
@@ -65,9 +65,19 @@ Tested by: TL-5 (`docs/notes/05-quality-gates.md`). CI runs the same `typecheck`
 
 ### One agent per role, one file per agent (TL-7)
 
-`factories/<name>/agents/<role>/agent.md` holds the prompt, model, allowed tools and skills for one role. The reviewer runs from a clean checkout with only the diff and the spec. Triage runs on a cheaper model. Model choice is a one-line change, so the benchmark can compare models per role.
+`factories/code/agents/<role>/agent.md` holds one role's model, tools, budget, time limit and system prompt: `key: value` lines between `---` fences, then the prompt. Model choice is a one-line change, so the benchmark can compare models per role. `platform/agents/agent.ts` parses it and refuses a missing or unknown setting, and any tool other than `Bash`, `Edit` and `Read`. Those are the three `run-issue.sh` confines, so a definition cannot hand an agent an unconfined tool such as `WebFetch`.
 
-Tested by: TL-7, then the benchmark in TL-15.
+The four roles are triage (Haiku), spec, implement and review (Sonnet). The queue chains them by label (`STAGES` in `platform/queue/queue.ts`): each is a separate workflow run on a fresh runner, and its success adds the label that starts the next. They hand work on through GitHub, not through a shared disk. The triage note and the spec are issue comments from the factory App, the implementation is a draft PR, and the review is a comment on that PR.
+
+`run-issue.sh <role>` keeps one confinement for every role and adds what differs, which is the platform's contract rather than the definition's:
+
+- **Inputs.** Triage, spec and implement get the issue and its trusted comments, the spec included.
+- **The gate.** Only implement hands in changes, so only implement gets the stop hook.
+- **The reviewer's isolation.** It gets a fresh clone, detached at the head commit of the issue's newest open factory PR from this repository. It is also denied the clone's git metadata, which holds the commit message, and with it the issue's title, as well as earlier attempts on other branches. Its prompt holds only the latest App-or-maintainer comment headed `<!-- factory:spec -->` and `git diff base...head`: no issue, no other comments, no PR description, and no transcript, which lives on another runner. It checks out the PR's head only after installing the base branch's dependencies, because pnpm runs a `.pnpmfile.cjs` from an agent-written branch even with `--ignore-scripts`, outside any sandbox. Its review is posted as a comment, never a review, so the factory still cannot approve (TL-10). The run log counts its `## Findings` bullets as `review_findings`. A `QUESTION:` from it is posted as its review, since nobody could answer it.
+
+Not yet: role-specific skills and MCP servers. Every run still uses `--setting-sources ""` and `--strict-mcp-config`, so no role loads either. The chain and the role contracts live in `platform/`, so a second factory with different roles needs TL-17's triggers. A blocking finding does not send the PR back to implement; a human reads it.
+
+Tested by: TL-7 (`docs/notes/07-role-agents.md`), then the benchmark in TL-15.
 
 ### Humans merge: two rulesets and a factory App (TL-10)
 
@@ -116,7 +126,7 @@ Tested by: TL-22, TL-23.
 
 Agents reach Throughline through its MCP server (TL-3), registered in `.mcp.json`: `get_requirement` reads the requirement being implemented and `propose_link` proposes the PR's link to it. The server lives in Throughline (`/api/mcp`), not in `platform/`, because it is a way into Throughline's graph and must go through Throughline's own proposal code; a copy here would have to write to its database directly. It authenticates with a bearer token plus the Vercel protection bypass, and has no tool that approves anything: an agent's link is a pending proposal labelled "Proposed by an agent" until the owner approves it. The bypass secret is the weak point. Throughline has no sign-in of its own, so the secret opens the whole instance, and an agent holding it could approve proposals on the review page. For now only interactive sessions the owner watches get it; they already hold the owner's GitHub login, which can merge, so it gives them nothing new. An unattended agent gets a way in that carries only the MCP token: the MCP gateway (`platform/mcp-gateway/`, #35), a separate Vercel project with protection off and one function. It forwards POSTs to Throughline's `/api/mcp` and adds the bypass secret server-side, so its caller holds nothing that opens the review page. It has no other route to expose, so it fails closed. It cannot run on the runner, where the agent has a shell. The `throughline` skill in `.claude/skills/` tells an agent when to call each tool.
 
-Tested by: TL-3, and the gateway by #35 (`docs/notes/03-mcp-gateway.md`): a headless `claude -p` holding only the gateway's address and the MCP token called both tools. Unattended runs (TL-4) load no `.mcp.json`; passing the gateway config with `--mcp-config` gives them the tools. Which runs get it belongs to their agent definition (TL-7).
+Tested by: TL-3, and the gateway by #35 (`docs/notes/03-mcp-gateway.md`): a headless `claude -p` holding only the gateway's address and the MCP token called both tools. Unattended runs (TL-4) load no `.mcp.json`; passing the gateway config with `--mcp-config` gives them the tools. Which runs get it belongs to their agent definition; TL-7's definitions do not have an MCP setting yet.
 
 ## Non-goals
 

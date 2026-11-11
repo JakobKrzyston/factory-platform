@@ -2,7 +2,8 @@
  *  arithmetic; run as a CLI it sets up a repository, claims an issue or moves it to a state.
  *
  *  pnpm queue setup <owner/repo>                         labels and the `factory` environment
- *  pnpm queue claim <owner/repo> <issue>                 prints true and moves ready -> in-progress, or prints false
+ *  pnpm queue claim <owner/repo> <issue> <state>         prints true and moves <state> -> in-progress, or prints false
+ *  pnpm queue stage <state>                              prints the role a state queues and the state after it
  *  pnpm queue set <owner/repo> <issue> <state> [comment.md]
  *
  *  Needs `gh` signed in: as a repo admin for setup, as the factory App otherwise. */
@@ -10,14 +11,28 @@ import { execFileSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
 
 export const STATES = {
-  ready: { color: "0E8A16", description: "Queued for the factory. Adding this label starts a run." },
-  "in-progress": { color: "FBCA04", description: "A factory run is working on this issue." },
-  "in-review": { color: "1D76DB", description: "The factory opened a pull request; a human reviews and merges it." },
+  ready: { color: "0E8A16", description: "Queued for the factory. Adding this label starts the triage agent." },
+  spec: { color: "C2E0C6", description: "Triaged. Adding this label starts the spec agent." },
+  implement: { color: "BFD4F2", description: "Specified. Adding this label starts the implement agent." },
+  review: { color: "D4C5F9", description: "A pull request is open. Adding this label starts the review agent." },
+  "in-progress": { color: "FBCA04", description: "A factory agent is working on this issue." },
+  "in-review": { color: "1D76DB", description: "The review agent has commented on the factory's pull request; a human reviews and merges it." },
   "needs-human": { color: "D93F0B", description: "The factory stopped with a question or a failure; see its comment." },
   done: { color: "5319E7", description: "The factory's pull request merged." },
 } as const;
 
 export type State = keyof typeof STATES;
+
+/** The chain of agents (TL-7). Each state here queues one role, the folder name under the factory's `agents/`;
+ *  when that role succeeds the issue moves to `next`, whose label starts the next role. */
+export const STAGES = {
+  ready: { role: "triage", next: "spec" },
+  spec: { role: "spec", next: "implement" },
+  implement: { role: "implement", next: "review" },
+  review: { role: "review", next: "in-review" },
+} as const satisfies Partial<Record<State, { role: string; next: State }>>;
+
+export type Stage = keyof typeof STAGES;
 
 /** The label name for a state, e.g. `factory:ready`. */
 export function label(state: State): string {
@@ -44,10 +59,11 @@ export function labelChanges(current: string[], to: State): { add: string[]; rem
  *
  *  Args:
  *    issue: the issue's current state and label names, read after the run started.
+ *    from: the stage whose label started the run.
  *  Returns: null if the run may claim it, otherwise why not. */
-export function claimRefusal(issue: { state: string; labels: string[] }): string | null {
+export function claimRefusal(issue: { state: string; labels: string[] }, from: Stage): string | null {
   if (issue.state !== "open") return "the issue is closed";
-  if (!issue.labels.includes(label("ready"))) return `the issue is not labelled ${label("ready")}`;
+  if (!issue.labels.includes(label(from))) return `the issue is not labelled ${label(from)}`;
   return null;
 }
 
@@ -79,7 +95,7 @@ export function setState(repo: string, issue: string, to: State, commentFile?: s
   for (const name of remove) gh(["api", "--method", "DELETE", `${path}/labels/${encodeURIComponent(name)}`, "--silent"]);
 }
 
-/** Creates or updates the five state labels, and the `factory` environment that holds the
+/** Creates or updates the state labels, and the `factory` environment that holds the
  *  workflow's secrets. The environment deploys from `main` only, so a workflow running a factory
  *  branch's code cannot read them (#33). */
 function setup(repo: string): void {
@@ -105,8 +121,14 @@ function main([command, repo, issue, state, commentFile]: string[]): void {
     setup(repo);
     return;
   }
-  if (command === "claim" && repo && issue) {
-    const refusal = claimRefusal(readIssue(repo, issue));
+  // As key=value lines, for $GITHUB_OUTPUT.
+  if (command === "stage" && Object.hasOwn(STAGES, repo)) {
+    const { role, next } = STAGES[repo as Stage];
+    console.log(`role=${role}\nnext=${next}`);
+    return;
+  }
+  if (command === "claim" && repo && issue && Object.hasOwn(STAGES, state)) {
+    const refusal = claimRefusal(readIssue(repo, issue), state as Stage);
     if (refusal) console.error(`not claimed: ${refusal}`);
     else setState(repo, issue, "in-progress");
     console.log(refusal === null);
@@ -116,7 +138,9 @@ function main([command, repo, issue, state, commentFile]: string[]): void {
     setState(repo, issue, state as State, commentFile);
     return;
   }
-  console.error("usage: queue setup <owner/repo> | claim <owner/repo> <issue> | set <owner/repo> <issue> <state> [comment.md]");
+  console.error(
+    "usage: queue setup <owner/repo> | stage <state> | claim <owner/repo> <issue> <state> | set <owner/repo> <issue> <state> [comment.md]",
+  );
   process.exit(2);
 }
 

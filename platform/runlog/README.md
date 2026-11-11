@@ -50,7 +50,7 @@ The row says what ran (`factory` and `role` at `factory_sha`, on `model`), on wh
 | --- | --- | --- | --- |
 | `id` | text | no | `github-<run id>-<attempt>` for a run the factory workflow started, so the row joins to its Actions run; otherwise a UUID `run-issue.sh` generates. Text rather than an auto-increment so the same id works in SQLite and Postgres, and rows from a local run and a cloud run never collide. |
 | `factory` | text | no | The factory directory name under `factories/`, such as `code`. |
-| `role` | text | no | The agent role within the factory, the folder name under `agents/`, such as `triage` or `implementer`. |
+| `role` | text | no | The agent role within the factory, the folder name under `agents/`: `triage`, `spec`, `implement` or `review` since TL-7. Rows from before TL-7 say `implementer`. |
 | `factory_sha` | text | no | The commit of this repository whose factory definition ran. Without it a row cannot say which prompt, model setting and gates produced the result, and two benchmark runs of different definitions would look identical. A run from a checkout with uncommitted changes gets `<commit>-dirty-<12 hex>`, a hash of `git diff HEAD`, so it never shares the commit's value. Untracked files mark it dirty but are not in the hash. |
 | `model` | text | no | The model ID the harness ran, such as `claude-opus-5-5`, from the transcript's first line. Until the run ends, or if it ended before the harness started, the model it asked for, such as `sonnet`. Recorded per run because the agent file can change between runs. |
 | `repo` | text | no | `owner/name` of the repository the issue and PR belong to. Makes `issue` and `pr` links rather than bare numbers. |
@@ -68,7 +68,7 @@ The row says what ran (`factory` and `role` at `factory_sha`, on `model`), on wh
 | `cache_write_tokens` | integer | yes | Input tokens written to the prompt cache. With the three input counts, cost can be recomputed from list prices and checked against `cost_usd` (TL-12 must match the provider within 5%). |
 | `cost_usd` | numeric(10,6) | yes | The run's cost in US dollars as the harness reports it. Exact decimal in Postgres; SQLite stores it as a float. |
 | `checks_passed` | boolean | yes | True if every gate check passed when the run ended, false if any failed. Null for a role that runs no gates. Which checks ran, and their output, are the check runs on `head_sha`. |
-| `review_findings` | integer | yes | For a reviewer run, the number of findings it raised. Null for other roles; an implementer's findings are those of the reviewer runs on the same `pr`. |
+| `review_findings` | integer | yes | For a `review` run, the number of findings it raised: the bullets of its review's last `## Findings` section. Null for other roles, and for a review without that section. An implementer's findings are those of the review runs on the same `pr`. A review run records no `head_sha`, so `rework` still compares against the implementer's hand-off; the commit it reviewed is `reviewed_sha` in its `run.json` and in its PR comment. |
 | `rework` | boolean | yes | Set on a PR's runs when the PR merges: true if a human changed it between hand-off (`head_sha` of the last factory run) and merge, false if it merged as handed off. Null until then, for runs with no PR, and for runs that recorded no `head_sha`. |
 
 ## Dialect differences
