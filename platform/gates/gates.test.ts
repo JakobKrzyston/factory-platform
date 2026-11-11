@@ -1,30 +1,40 @@
 /** Tests the quality gate: which checks it runs, its sandbox, and the stop hook's decision. Run: pnpm test */
 import assert from "node:assert/strict";
-import { execFileSync, spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { test } from "node:test";
+import { after, test } from "node:test";
 import { fileURLToPath } from "node:url";
 
-import { type CheckResult, committedChecks, runChecks } from "./checks";
-import { MAX_BLOCKS, verdict } from "./stop-hook";
+import { type CheckResult, baseChecks, runChecks } from "./checks";
+import { type GateConfig, MAX_BLOCKS, verdict } from "./stop-hook";
 
-const HERE = dirname(fileURLToPath(import.meta.url));
+const ROOT = join(dirname(fileURLToPath(import.meta.url)), "../..");
 // srt sandboxes with Seatbelt on macOS and bubblewrap on Linux; GitHub's Ubuntu runners do not allow bubblewrap's
 // user namespaces, so the tests that start a sandbox run only where scripts/run-issue.sh runs today.
 const NO_SANDBOX = process.platform !== "darwin" && "the sandbox tests need macOS";
 
-/** Makes a git checkout whose committed package.json defines `scripts`, plus any extra committed files. */
-function checkout(scripts: Record<string, string>, files: Record<string, string> = {}): string {
+const made: string[] = [];
+after(() => {
+  for (const dir of made) rmSync(dir, { recursive: true, force: true });
+});
+
+/** Makes a temporary directory holding `files`, removed when the tests finish. */
+function scratch(files: Record<string, string> = {}): string {
   const dir = mkdtempSync(join(tmpdir(), "gates-test-"));
-  writeFileSync(join(dir, "package.json"), JSON.stringify({ name: "fixture", scripts }));
-  for (const [name, text] of Object.entries(files)) writeFileSync(join(dir, name), text);
-  const git = (...args: string[]) => execFileSync("git", ["-c", "user.name=t", "-c", "user.email=t@example.com", ...args], { cwd: dir });
-  git("init", "-q");
-  git("add", "-A");
-  git("commit", "-q", "-m", "fixture");
+  made.push(dir);
+  for (const [name, text] of Object.entries(files)) {
+    mkdirSync(dirname(join(dir, name)), { recursive: true });
+    writeFileSync(join(dir, name), text);
+  }
   return dir;
+}
+
+/** A secret in the real temp directory, like run-issue.sh's API key file. */
+function secret(): { dir: string; file: string } {
+  const dir = scratch({ key: "sk-not-a-real-key" });
+  return { dir, file: join(dir, "key") };
 }
 
 const result = (name: string, ok: boolean, output = ""): CheckResult => ({ name, ok, exitCode: ok ? 0 : 1, seconds: 0, output });
@@ -52,63 +62,84 @@ test(`the hook stops blocking after ${MAX_BLOCKS} blocked attempts`, () => {
   assert.equal(verdict([result("test", false)], MAX_BLOCKS).block, false);
 });
 
-test("checks come from the committed package.json, not the working copy", () => {
-  const dir = checkout({ test: "node --test", lint: "biome lint", build: "tsc" });
-  writeFileSync(join(dir, "package.json"), JSON.stringify({ scripts: { test: "true" } }));
-  assert.deepEqual(committedChecks(dir), [
+test("checks are the typecheck, lint and test scripts of the copied package.json, in that order", () => {
+  const dir = scratch({ "package.json": JSON.stringify({ scripts: { test: "node --test", lint: "biome lint", build: "tsc" } }) });
+  assert.deepEqual(baseChecks(join(dir, "package.json")), [
     { name: "lint", script: "biome lint" },
     { name: "test", script: "node --test" },
   ]);
-  rmSync(join(dir, "package.json"));
-  assert.equal(committedChecks(dir).length, 2);
 });
 
-test("a checkout without a committed package.json has no checks", () => {
-  const dir = mkdtempSync(join(tmpdir(), "gates-test-"));
-  execFileSync("git", ["init", "-q"], { cwd: dir });
-  assert.deepEqual(committedChecks(dir), []);
+test("no package.json means no checks, but an unreadable one fails closed", () => {
+  const dir = scratch({ "package.json": "﻿{}" });
+  assert.deepEqual(baseChecks(join(dir, "missing.json")), []);
+  assert.throws(() => baseChecks(join(dir, "package.json")), SyntaxError);
 });
 
-test("checks run in the sandbox: the checkout is writable, home, temp and network are not", { skip: NO_SANDBOX }, () => {
-  const secret = mkdtempSync(join(tmpdir(), "gates-secret-"));
-  writeFileSync(join(secret, "key"), "sk-not-a-real-key");
-  const dir = checkout({
-    typecheck: "touch written-by-check && node -e \"require('fs').readFileSync('package.json')\"",
-    lint: `ls ${JSON.stringify(homedir())}`,
-    test: `cat ${JSON.stringify(join(secret, "key"))}`,
-  });
-  const [inside, home, key] = runChecks(dir, committedChecks(dir));
+test("checks run in the sandbox: the checkout is writable; home, denied paths and network are not", { skip: NO_SANDBOX }, () => {
+  const key = secret();
+  const dir = scratch();
+  const [inside, home, keyRead, network] = runChecks(
+    dir,
+    [
+      { name: "inside", script: "touch written-by-check && node -e 0" },
+      { name: "home", script: `ls ${JSON.stringify(homedir())}` },
+      { name: "key", script: `cat ${JSON.stringify(key.file)}` },
+      { name: "network", script: "curl -sS -m 5 https://example.com" },
+    ],
+    [homedir(), key.dir],
+  );
   assert.equal(inside.ok, true, inside.output);
+  assert.ok(existsSync(join(dir, "written-by-check")));
   assert.equal(home.ok, false);
   assert.match(home.output, /Operation not permitted/);
-  assert.equal(key.ok, false);
-  assert.doesNotMatch(key.output, /sk-not-a-real-key/);
-
-  const [network] = runChecks(dir, [{ name: "test", script: "curl -sS -m 5 https://example.com" }]);
+  assert.equal(keyRead.ok, false);
+  assert.doesNotMatch(keyRead.output, /sk-not-a-real-key/);
   assert.equal(network.ok, false);
+  assert.match(network.output, /CONNECT tunnel failed, response 403/);
 });
 
-test("the stop hook blocks a broken checkout, names the check, and passes once it is fixed", { skip: NO_SANDBOX }, () => {
-  const dir = checkout(
-    { test: "node --test" },
-    { "add.test.mjs": "import { test } from 'node:test';\nimport assert from 'node:assert';\ntest('adds', () => assert.equal(1 + 1, 3));\n" },
-  );
-  const log = join(mkdtempSync(join(tmpdir(), "gates-log-")), "gates.jsonl");
-  // Inherited from this test run, NODE_TEST_CONTEXT makes the fixture's `node --test` skip its files and exit 0.
-  const { NODE_TEST_CONTEXT, ...env } = process.env;
+test("a node planted in the checkout's node_modules/.bin runs inside the sandbox", { skip: NO_SANDBOX }, () => {
+  const outside = scratch();
+  const dir = scratch({
+    "node_modules/.bin/node": `#!/bin/sh\necho ran > planted-ran\ntouch ${JSON.stringify(join(outside, "escaped"))}\nexec ${JSON.stringify(process.execPath)} "$@"\n`,
+  });
+  chmodSync(join(dir, "node_modules/.bin/node"), 0o755);
+  const [check] = runChecks(dir, [{ name: "test", script: "node -e 0" }], [homedir()]);
+  assert.equal(check.ok, true, check.output);
+  assert.ok(existsSync(join(dir, "planted-ran")), "the planted node should have run");
+  assert.equal(existsSync(join(outside, "escaped")), false, "the planted node ran outside the sandbox");
+});
+
+test("the stop hook, started as Claude Code starts it, blocks a broken checkout without leaking the key", { skip: NO_SANDBOX }, () => {
+  const key = secret();
+  const dir = scratch({
+    "add.test.mjs": "import { test } from 'node:test';\nimport assert from 'node:assert';\ntest('adds', () => assert.equal(1 + 1, 3));\n",
+  });
+  const run = scratch({ "base-package.json": JSON.stringify({ scripts: { test: `cat ${JSON.stringify(key.file)}; node --test` } }) });
+  const config: GateConfig = {
+    checkout: dir,
+    package_json: join(run, "base-package.json"),
+    log: join(run, "gates.jsonl"),
+    deny_read: [homedir(), key.dir],
+  };
+  writeFileSync(join(run, "gate.json"), JSON.stringify(config));
+  // run-issue.sh starts claude with only PATH and HOME, and the hook inherits that: no TMPDIR, no NODE_TEST_CONTEXT.
+  const env = { PATH: process.env.PATH, HOME: process.env.HOME };
   const hook = () =>
-    spawnSync(join(HERE, "../../node_modules/.bin/tsx"), [join(HERE, "stop-hook.ts"), dir, log], { encoding: "utf8", env });
+    spawnSync("node_modules/.bin/tsx", ["platform/gates/stop-hook.ts", join(run, "gate.json")], { cwd: ROOT, encoding: "utf8", env });
 
   const blocked = hook();
-  assert.equal(blocked.status, 2);
+  assert.equal(blocked.status, 2, blocked.stderr);
   assert.match(blocked.stderr, /^Quality gate: test failed/);
   assert.match(blocked.stderr, /not ok 1 - adds/);
+  assert.doesNotMatch(blocked.stderr, /sk-not-a-real-key/);
 
   writeFileSync(join(dir, "add.test.mjs"), readFileSync(join(dir, "add.test.mjs"), "utf8").replace("3", "2"));
   const fixed = hook();
   assert.equal(fixed.status, 0, fixed.stderr);
   assert.deepEqual(
-    readFileSync(log, "utf8").trim().split("\n").map((line) => JSON.parse(line).passed),
+    readFileSync(config.log, "utf8").trim().split("\n").map((line) => JSON.parse(line).passed),
     [false, true],
   );
 });

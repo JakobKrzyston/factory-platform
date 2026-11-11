@@ -54,9 +54,17 @@ ISSUE=$(gh issue view "$ISSUE_URL" --json title,body)
 TITLE=$(jq -r .title <<<"$ISSUE")
 BODY=$(jq -r .body <<<"$ISSUE")
 
+# The gate runs the scripts from this copy, out of the agent's reach, so editing
+# package.json or committing in the clone cannot change what it runs.
+if [[ -f $WORKDIR/package.json ]]; then cp "$WORKDIR/package.json" "$RUN_DIR/base-package.json"; fi
+jq -n --arg checkout "$WORKDIR" --arg run_dir "$RUN_DIR" --arg home "$HOME" --arg key_dir "$KEY_DIR" \
+  '{checkout: $checkout, package_json: "\($run_dir)/base-package.json", log: "\($run_dir)/gates.jsonl",
+    deny_read: [$home, $key_dir]}' > "$RUN_DIR/gate.json"
+
 # Bash runs in the OS sandbox: writes only inside the clone, no reads of the
 # owner's home directory or the key, no network. The stop hook runs outside it,
-# and runs the checks in a sandbox of its own (platform/gates/checks.ts).
+# and runs the checks in a sandbox of its own (platform/gates/checks.ts). It runs
+# from $ROOT so that tsx does not load the clone's tsconfig.json.
 cat > "$RUN_DIR/settings.json" <<JSON
 {
   "apiKeyHelper": "cat $KEY_DIR/key",
@@ -70,7 +78,7 @@ cat > "$RUN_DIR/settings.json" <<JSON
   "hooks": {
     "Stop": [{ "hooks": [{
       "type": "command",
-      "command": "$ROOT/node_modules/.bin/tsx $ROOT/platform/gates/stop-hook.ts $WORKDIR $RUN_DIR/gates.jsonl",
+      "command": "cd \"$ROOT\" && node_modules/.bin/tsx platform/gates/stop-hook.ts \"$RUN_DIR/gate.json\"",
       "timeout": 600
     }] }]
   }

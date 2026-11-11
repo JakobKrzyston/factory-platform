@@ -1,9 +1,17 @@
-/** Claude Code Stop hook that refuses to let the agent finish while typecheck, lint or test fails. Exports verdict.
- *  Run by scripts/run-issue.sh: tsx platform/gates/stop-hook.ts <checkout> <gates.jsonl> */
-import { appendFileSync, existsSync, readFileSync } from "node:fs";
+/** Claude Code Stop hook that refuses to let the agent finish while typecheck, lint or test fails. Exports verdict
+ *  and GateConfig. Run by scripts/run-issue.sh, from this repository's root: tsx platform/gates/stop-hook.ts <gate.json> */
+import { appendFileSync, existsSync, readFileSync, realpathSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 
-import { type CheckResult, committedChecks, runChecks } from "./checks";
+import { type CheckResult, baseChecks, runChecks } from "./checks";
+
+/** gate.json, written by run-issue.sh before the agent starts. */
+export type GateConfig = {
+  checkout: string; // the agent's clone, where the checks run
+  package_json: string; // the clone's package.json, copied before the agent started
+  log: string; // gates.jsonl: one line per attempt to finish
+  deny_read: string[]; // paths the checks may not read: the owner's home and the API key's directory
+};
 
 // An unfixable failure would otherwise block until the run's budget or time limit. After this many blocks the
 // hook lets the agent stop, and run-issue.sh, which reads the last line of the log, opens no pull request.
@@ -28,16 +36,17 @@ export function verdict(results: CheckResult[], blocksSoFar: number): { block: b
   });
   const message = [
     `Quality gate: ${names.join(" and ")} failed, so you cannot finish yet.${passed.length ? ` Passed: ${passed.join(", ")}.` : ""}`,
-    "Each time you try to finish, the gate runs the typecheck, lint and test scripts from the committed package.json, " +
-      "in a sandbox. Fix the cause and try to finish again. Editing package.json does not change what the gate runs.",
+    "Each time you try to finish, the gate runs the typecheck, lint and test scripts from package.json as it was " +
+      "when you started, in a sandbox. Fix the cause and try to finish again.",
     ...sections,
   ].join("\n\n");
   return { block: true, message };
 }
 
-if (import.meta.url === pathToFileURL(process.argv[1]).href) {
-  const [dir, log] = process.argv.slice(2);
-  const results = runChecks(dir, committedChecks(dir));
+// realpath: import.meta.url has symlinks resolved and argv[1] does not.
+if (import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href) {
+  const { checkout, package_json, log, deny_read }: GateConfig = JSON.parse(readFileSync(process.argv[2], "utf8"));
+  const results = runChecks(checkout, baseChecks(package_json), deny_read);
   const blocksSoFar = existsSync(log)
     ? readFileSync(log, "utf8").split("\n").filter((line) => line && !JSON.parse(line).passed).length
     : 0;
