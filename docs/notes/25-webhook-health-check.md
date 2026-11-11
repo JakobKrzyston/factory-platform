@@ -24,7 +24,7 @@ One more wrong-credentials case turned up along the way. An App ID paired with a
 
 The first run's `FAILED` lines looked exactly like a real outage. Only the App's ID showed that it was not one, and nothing printed the ID until this stage added the slug line.
 
-The scheduled workflow has not run. The `throughline` environment and its secrets are not set up, and GitHub only schedules or dispatches workflows that are on `main`. That check is owed after merge.
+The `throughline` environment was created at 2026-11-11T16:07Z. It deploys from `main` only and holds `THROUGHLINE_APP_ID` (5687858) and the App's key as `THROUGHLINE_APP_PRIVATE_KEY`. The workflow itself has not run. The environment admits only `main`, and GitHub schedules and dispatches only workflows that are on `main`, so the first proof is a `workflow_dispatch` run after merge.
 
 ## What the numbers said
 
