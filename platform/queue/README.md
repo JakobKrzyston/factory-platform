@@ -2,7 +2,7 @@
 
 The factory's work queue is GitHub issue labels. An issue's one `factory:*` label is its state, so every transition is a label change in the issue's timeline, made by the factory App.
 
-Four of the states queue an agent (TL-7). Adding the label starts that role; while it works the issue is `in-progress`; when it succeeds the factory adds the next label, which starts the next role:
+Some labels start an agent (TL-7): each factory's triggers, `factories/<name>/triggers/` (TL-17). The code factory has four. Adding the label starts that role; while it works the issue is `in-progress`; when it succeeds the factory adds the next label, which starts the next role:
 
 ```
  human adds
@@ -15,11 +15,11 @@ factory:ready ──triage──▶ factory:spec ──spec──▶ factory:imp
                                                                     fixes it and re-adds the label of the role that stopped
 ```
 
-The chain is `STAGES` in `queue.ts`. Each role's definition is `factories/code/agents/<role>/agent.md`.
+The chain is the code factory's triggers: each `trigger.yaml` names its label, its agent and the label its success moves to (`factories/README.md`). Each role's definition is `factories/code/agents/<role>/agent.md`. The queue itself knows only the states every factory shares, `STATES` in `queue.ts`: `in-progress`, `in-review`, `needs-human` and `done`. `platform/factory/` refuses a factory whose chain does not end at `in-review`.
 
 `.github/workflows/factory.yml` runs on every `issues` event:
 
-- **`factory:ready`, `factory:spec`, `factory:implement` or `factory:review` added**: the `run` job claims the issue (that label to `in-progress`), prepares the runner, and runs `scripts/run-issue.sh <role>` on it. On success it posts a comment and then moves the issue to the next state: the triage note before `spec`, the spec (headed `<!-- factory:spec -->`) before `implement`, a link to the draft PR before `review`, and a pointer to the review before `in-review`. The comment goes first so it is on the issue before the role that reads it starts. Otherwise the issue moves to `needs-human` with a comment. A PR whose description still lacks its risk or evidence after the stop hook gave up refusing it (TL-8, `factories/code/skills/pr-description/SKILL.md`) also goes to `needs-human` instead of `review`, with a comment listing what is missing, so the reviewer never runs on a PR a person must fix first. The person fills the description in, then adds `factory:review` or merges. A run that times out, is cancelled or whose runner cannot be set up also ends at `needs-human`. The script writes the run's row in the run log (TL-12, `platform/runlog/README.md`). The run's settings, transcript and `run.json` are uploaded as an artifact named after the issue and the role.
+- **Any `factory:*` label added**: the `route` job runs `queue route`, which finds the factory listing this repository and its trigger on that label. A label that is no trigger's, such as the `in-progress` the App adds itself, stops there. Otherwise, for the code factory **`factory:ready`, `factory:spec`, `factory:implement` or `factory:review`**, the `run` job claims the issue (that label to `in-progress`), prepares the runner, and runs `scripts/run-issue.sh <role>` on it. `queue report` then words what happened and moves the issue. On success it posts the trigger's `comment.md` and then moves the issue to the trigger's `next`: the triage note before `spec`, the spec (headed `<!-- factory:spec -->`) before `implement`, a link to the draft PR before `review`, and a pointer to the review before `in-review`. The comment goes first so it is on the issue before the role that reads it starts. Otherwise the issue moves to `needs-human` with a comment. A PR whose description still lacks its risk or evidence after the stop hook gave up refusing it (TL-8, `factories/code/skills/pr-description/SKILL.md`) also goes to `needs-human` instead of `review`, with a comment listing what is missing, so the reviewer never runs on a PR a person must fix first. The person fills the description in, then adds `factory:review` or merges. A run that times out, is cancelled or whose runner cannot be set up also ends at `needs-human`. The script writes the run's row in the run log (TL-12, `platform/runlog/README.md`). The run's settings, transcript and `run.json` are uploaded as an artifact named after the issue and the role.
 - **Issue in any factory state closed as completed**: the factory's PR says `Closes #N`, so merging it does this, whether or not the review agent has finished, and from `needs-human` after a person filled in an incomplete description. The `done` job moves the issue to `done` only if the factory's PR (a `factory/issue-<n>-...` branch of this repository) is what merged; an issue a human closed without one keeps its label. It also records on the issue's runs whether a human changed the PR before merging (`rework`).
 
 A closed issue moves only to `done`. A run that ends after a human closed the issue still posts its comment but leaves the label alone, and implement opens no PR for an issue closed during its run.
@@ -37,7 +37,7 @@ The workflow's secrets are in a GitHub environment called `factory` that deploys
 ## Setting up a repository
 
 ```sh
-pnpm queue setup <owner/repo>            # the state labels and the factory environment; needs gh signed in as an admin; rerun when STATES changes
+pnpm queue setup <owner/repo>            # the state labels, the trigger labels of every factory serving the repository, and the factory environment; needs gh signed in as an admin; rerun when STATES or a trigger changes
 gh secret set ANTHROPIC_API_KEY --env factory --repo <owner/repo>
 gh secret set FACTORY_APP_PRIVATE_KEY --env factory --repo <owner/repo> < factory-app.pem
 gh variable set FACTORY_APP_ID --env factory --repo <owner/repo> --body <app-id>
@@ -48,4 +48,4 @@ Without `DATABASE_URL` the run log is a SQLite file on the runner, uploaded with
 
 The factory App (TL-10) must be installed on the repository with read-write Contents, Issues and Pull requests.
 
-`pnpm queue stage <state>`, `pnpm queue claim <owner/repo> <issue> <state>`, `pnpm queue set <owner/repo> <issue> <state> [comment.md]` and `pnpm queue done <owner/repo> <issue>` are what the workflow calls. Run by hand with `gh` signed in, they move an issue the same way.
+`pnpm queue route <owner/repo> <label>`, `pnpm queue claim <owner/repo> <issue> <label>`, `pnpm queue report <owner/repo> <issue> <factory> <trigger> <exit-code> <output-file> <run-url>`, `pnpm queue set <owner/repo> <issue> <label> [comment.md]` and `pnpm queue done <owner/repo> <issue>` are what the workflow calls. Labels are given whole, e.g. `factory:needs-human`. Run by hand with `gh` signed in, they move an issue the same way.

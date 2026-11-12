@@ -1,0 +1,79 @@
+# factories
+
+One folder per factory. A factory is data: every file here is a definition, and the code that reads and runs it lives in `platform/` (rule 5 in `CLAUDE.md`). A resource's name is its path: the factory is named by its folder, each agent by its folder under `agents/`, each trigger by its folder under `triggers/`. Creating a factory is copying a folder; splitting one is moving agent and trigger folders.
+
+```
+factories/<name>/
+  factory.yaml                      which repositories it serves, which agent is the foreman
+  agents/<agent>/agent.md           one agent: model, tools, budget, time limit, prompt
+  agents/<agent>/skills/<skill>/    skills for that agent only
+  triggers/<trigger>/trigger.yaml   the label that starts an agent, and the label its success moves to
+  triggers/<trigger>/comment.md     the comment posted when that agent succeeds
+  triggers/<trigger>/question.md    optional: added to the comment when that agent asks a question
+  scorers/<scorer>/scorer.md        how a benchmark result is graded (TL-16)
+  skills/<skill>/SKILL.md           skills shared by every agent in the factory
+```
+
+`platform/factory/factory.ts` reads `factory.yaml` and the triggers, and refuses a factory whose files are missing or malformed or whose chain does not end with a human. `platform/agents/agent.ts` reads `agent.md`. Both refuse an unknown field.
+
+## The YAML files
+
+`factory.yaml` and `trigger.yaml` are plain `key: value` lines. A value may be double-quoted, a list is written `[a, b]`, and a line starting with `#` is a comment. Nothing else (no nesting, no multi-line values), so a YAML 1.2 parser reads them the same way as the platform's reader. Quote a value YAML would read as a number, such as the colour `"5319E7"`.
+
+## factory.yaml
+
+```yaml
+repositories: [JakobKrzyston/factory-platform]
+foreman: triage
+```
+
+| Field | Required | Meaning |
+| --- | --- | --- |
+| `repositories` | yes | The `owner/name` repositories whose issues this factory works. A label added to an issue in any other repository starts nothing from this factory. `pnpm queue setup <owner/repo>` creates the trigger labels of every factory listing that repository. |
+| `foreman` | yes | The agent that first sees every issue: the agent of the entry trigger, the one trigger no other trigger's `next` leads to. It must name a folder under `agents/`. While the queue does the dispatching, the foreman decides whether the issue goes on at all; when an agent dispatches the others itself, this field already names it. |
+
+There is no `name` field: the factory's name is its folder, and that name is what the run log records. Settings such as the model belong to each agent's `agent.md`, so there are no factory-wide defaults.
+
+## triggers/&lt;trigger&gt;/trigger.yaml
+
+```yaml
+on: label
+label: factory:ready
+agent: triage
+next: factory:spec
+color: "0E8A16"
+description: Queued for the factory. Adding this label starts the triage agent.
+```
+
+| Field | Required | Meaning |
+| --- | --- | --- |
+| `on` | yes | What starts the run. Only `label` so far: a label added to an issue. |
+| `label` | yes | The label that starts the run. It starts with `factory:`, the queue's prefix, because an issue carries one `factory:*` label at a time and moving it removes the others. No two triggers in a factory share a label. |
+| `agent` | yes | The agent the run starts: a folder under `agents/` holding an `agent.md`. |
+| `next` | yes | The label the issue moves to when the agent succeeds: another trigger's `label`, which starts that trigger's agent, or `factory:in-review`, where a human takes over. Following `next` from any trigger must reach `factory:in-review` without looping, so every chain ends with a human. |
+| `color` | yes | The label's colour on GitHub, six hex digits, quoted. |
+| `description` | yes | The label's description on GitHub. |
+
+The trigger's name is its folder. `pnpm queue route` gives the workflow the factory, trigger and agent a label starts, and `pnpm queue report` reads the trigger's two Markdown files to word the run's comment.
+
+## triggers/&lt;trigger&gt;/comment.md
+
+The comment posted on the issue when the agent succeeds, before the issue moves to `next`, so the next agent can read it. `{output}` is replaced by what `scripts/run-issue.sh` printed (a triage note, a spec, a pull request's URL) and `{run_url}` by the Actions run. The spec trigger's comment starts with `{output}`, because the spec's first line is the `<!-- factory:spec -->` marker the review agent finds it by. Only the spec's comment may start with that marker, so the triage comment starts with a heading.
+
+## triggers/&lt;trigger&gt;/question.md
+
+Optional. When the agent stops with a question, the queue posts it quoted, says to answer and add the trigger's label again, and then adds this file's text. The code factory's implement trigger uses it to say when to go back to `factory:spec` instead.
+
+What the platform posts for a failure, a question and an incomplete pull request description is otherwise the same for every trigger: `report` in `platform/queue/queue.ts`.
+
+## agents/&lt;agent&gt;/agent.md
+
+Documented in [`code/agents/README.md`](code/agents/README.md): `description`, `model`, `tools`, `budget_usd` and `time_limit_seconds` between `---` fences, then the system prompt. What each agent is given and what becomes of its answer is still `scripts/run-issue.sh`'s, by agent name, so a new agent needs a branch there too (TL-18).
+
+## skills/ and agents/&lt;agent&gt;/skills/
+
+Each skill is a folder holding a `SKILL.md`. No run loads skills by itself yet (every run uses `--setting-sources ""`); `run-issue.sh` appends the two the code factory needs to the prompts that use them: `skills/pr-description/` to implement's and `agents/review/skills/cite-standards/` to review's.
+
+## scorers/
+
+Empty until scorers grade benchmark results, each as `scorers/<scorer>/scorer.md` (TL-16).

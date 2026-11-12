@@ -1,0 +1,7 @@
+# The last trigger: its success hands the pull request to a human.
+on: label
+label: factory:review
+agent: review
+next: factory:in-review
+color: "D4C5F9"
+description: A pull request is open. Adding this label starts the review agent.
