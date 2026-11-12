@@ -85,11 +85,22 @@ test("formatSummary aligns the columns and totals cost and wall time", () => {
 const REPO_ROOT = join(dirname(new URL(import.meta.url).pathname), "../..");
 const sh = (cwd: string, ...args: string[]) => execFileSync(args[0], args.slice(1), { cwd, encoding: "utf8" }).trim();
 
-/** A stand-in for claude: finishes at once, as the run's gate would record a pass, with a change in the clone. */
+/** The values claude was given for --allowedTools, which takes every argument up to the next flag. */
+function allowedTools(runDir: string): string[] {
+  const args = readFileSync(join(runDir, "args.txt"), "utf8").trimEnd().split("\n");
+  const start = args.indexOf("--allowedTools") + 1;
+  const end = args.findIndex((arg, i) => i >= start && arg.startsWith("--"));
+  return args.slice(start, end);
+}
+
+/** A stand-in for claude: records its arguments, then finishes at once, as the run's gate would record a pass,
+ *  with a change in the clone. */
 const FAKE_CLAUDE = `#!/usr/bin/env bash
 if [[ \${1:-} == --version ]]; then echo "0.0.0 (fake)"; exit 0; fi
+args=("$@")
 while [[ $# -gt 0 ]]; do [[ $1 == --settings ]] && settings=$2; shift; done
 run_dir=$(dirname "$settings")
+printf '%s\\n' "\${args[@]}" > "$run_dir/args.txt"
 cat > /dev/null
 git log --all --format=%H > "$run_dir/history.txt"
 if [[ $(jq -r .role "$run_dir/run.json") == review ]]; then
@@ -162,9 +173,13 @@ test(
     const patch = implement.stdout.trim();
     assert.match(readFileSync(patch, "utf8"), /\+\+\+ b\/replayed.txt/);
     assert.equal(readFileSync(join(dirname(patch), "history.txt"), "utf8").trim(), baseSha);
+    // Each role gets the file tools its agent.md lists, confined to the clone; implement creates files with Write (#67).
+    assert.deepEqual(allowedTools(dirname(patch)), ["Read(./**)", "Edit(./**)", "Write(./**)"]);
     const review = replay("review", patch);
     assert.equal(review.status, 0, review.stderr);
     assert.match(readFileSync(review.stdout.trim(), "utf8"), /## Findings/);
+    // Review, which lists neither Edit nor Write, can only read.
+    assert.deepEqual(allowedTools(dirname(review.stdout.trim())), ["Read(./**)"]);
 
     const log = readFileSync(calls, "utf8");
     assert.doesNotMatch(log, /^gh /m);

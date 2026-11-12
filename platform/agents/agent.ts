@@ -6,10 +6,10 @@
 import { readFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 
-/** The tools an agent may be given. run-issue.sh confines exactly these (Read and Edit to the clone, Bash to
- *  the OS sandbox); any other tool, such as WebFetch, would run unconfined, so a definition naming one is
- *  refused rather than run. */
-export const TOOLS = ["Bash", "Edit", "Read"] as const;
+/** The tools an agent may be given. run-issue.sh confines exactly these (Read, Edit and Write to the clone,
+ *  Bash to the OS sandbox); any other tool, such as WebFetch, would run unconfined, so a definition naming one
+ *  is refused rather than run. */
+export const TOOLS = ["Bash", "Edit", "Read", "Write"] as const;
 
 /** One role's settings and prompt. */
 export type Agent = {
