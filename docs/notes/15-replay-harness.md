@@ -54,9 +54,43 @@ The reviewer saw the issue as its spec and PR #29's diff as merged, 4 files, and
 
 Real spend for this PR: $0.42 over six agent runs, all on the local SQLite run log. No cloud rows were written.
 
+## The full benchmark run
+
+**Expected.** `pnpm bench code <ref>` replays all 11 of TL-14's cases (2 implement, 3 spec, 4 triage, 2 review) and prints one row per stage. Every implement stage should pass the gate. That needs #69 (`tl/64-gate-local-binding`), which sets `network.allowLocalBinding` in the gate's sandbox, so the ref is that branch and not `main`. The owner approved running agent-written checks locally with that setting.
+
+**Happened.** `pnpm bench code tl/64-gate-local-binding --max-usd 6`, at `5477cf4`, on this Mac, from a checkout of `main` at `130435a` (the cases come from the checkout, the factory from the ref):
+
+```
+case                     role       outcome      checks  cost   wall time
+11-run-log-schema        spec       done         -       $0.07  25s
+32-webhook-health-check  triage     needs_human  -       $0.00  18s
+33-branch-ci-secrets     triage     needs_human  -       $0.00  11s
+34-process-group-clone   spec       done         -       $0.07  33s
+35-token-only-mcp        triage     needs_human  -       $0.00  15s
+4-run-issue-review       review     done         -       $0.06  15s
+41-tsx-gate-sandbox      spec       done         -       $0.06  30s
+5-quality-gates-review   review     done         -       $0.08  16s
+52-stage-labels-test     triage     done         -       $0.00  10s
+52-stage-labels-test     spec       done         -       $0.03  12s
+52-stage-labels-test     implement  done         passed  $0.10  37s
+52-stage-labels-test     review     done         -       $0.04  17s
+55-chain-ends-in-review  triage     done         -       $0.00  16s
+60-merge-gate-lint       triage     done         -       $0.00  17s
+60-merge-gate-lint       spec       done         -       $0.03  14s
+60-merge-gate-lint       implement  done         passed  $0.05  25s
+60-merge-gate-lint       review     done         -       $0.03  10s
+total                                                    $0.65  321s
+```
+
+All 17 stages ran and none was skipped. Both implement cases now go triage → spec → implement → review on real agents, and both implement runs passed the gate. The bench took 5 min 27 s end to end, including the clone and `pnpm install`. The run log has 17 rows, all with `benchmark` true and `factory_sha` `5477cf4`. Triage ran on Haiku, the rest on Sonnet.
+
+**What the numbers said.** The whole benchmark costs $0.647, so it is cheap enough to run on every factory change, as TL-14 asked. Triage costs under a cent a case. The three triage cases whose right answer is a question (32, 33, 35) asked one, and the two that should pass the issue on (52, 60) did. Case 55's triage passed the issue on with a note that names the existing chain test, which its expected outcome counts as a pass. The reviews raised 3 findings on case 4, 2 on case 5, 1 on 52 and 0 on 60. Whether those are the right findings, and whether each implement patch passes its case's `checks`, is TL-16's to score: the `checks` column is implement's gate, not the case's `checks` line. One run says nothing about spread. TL-17's comparison (`docs/notes/17-factory-directory.md`) runs the set four more times.
+
+DATABASE_URL was unset, so the rows went to the local SQLite run log, `.runlog/runlog.db`. No cloud rows were written.
+
 ## Not yet
 
-- **The full benchmark run** waits for TL-14's cases. Until it runs, TL-15 stays `in_progress` in the roadmap.
-- **A full spec → implement → review chain on real agents**: implement stops at the gate on macOS (above). The review hand-off from implement is covered by the test, with a fake agent, and by the direct review replay.
+- **A bench of `main` as it is now.** #69 merged as `cdc2e1b` after this run, so `main` now passes the gate on macOS. `main` also has #68, which gives implement a Write tool. The run above does not include #68, so it is not yet a baseline for `main`.
+- **Scoring**: the table reports outcomes, not whether they were right. That is TL-16.
 - **Postgres**: replay rows go through the same `startRun` as production rows. A benchmark row has not yet been written to Neon.
 - Cases replay against this repository only, one at a time.
