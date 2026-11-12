@@ -13,7 +13,7 @@ export const STATES = {
   ready: { color: "0E8A16", description: "Queued for the factory. Adding this label starts a run." },
   "in-progress": { color: "FBCA04", description: "A factory run is working on this issue." },
   "in-review": { color: "1D76DB", description: "The factory opened a pull request; a human reviews and merges it." },
-  "needs-human": { color: "D93F0B", description: "The factory stopped with a question or a failure; see its comment." },
+  "needs-human": { color: "D93F0B", description: "The factory stopped with a question, a failure or an incomplete PR; see its comment." },
   done: { color: "5319E7", description: "The factory's pull request merged." },
 } as const;
 

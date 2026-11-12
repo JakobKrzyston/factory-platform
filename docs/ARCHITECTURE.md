@@ -69,6 +69,16 @@ Tested by: TL-5 (`docs/notes/05-quality-gates.md`). CI runs the same `typecheck`
 
 Tested by: TL-7, then the benchmark in TL-15.
 
+### A pull request states its risk and evidence, or a person sees it first (TL-8)
+
+The repository's one pull request template, `.github/pull_request_template.md`, is also the factory's: What was built, How to try it, Risk (one-way or two-way door, blast radius) and Evidence. Its hints are HTML comments, so an unfilled section reads as empty. The guidance is a shared skill, `factories/code/skills/pr-description/SKILL.md`, with one part for the implementer and one for the reviewer. `run-issue.sh` puts the skill and the template in the implementer's system prompt, and the agent's final message becomes the description.
+
+The gate is the stop hook. Claude Code gives it the agent's final message, and `platform/gates/pr-description.ts` checks that message: a Risk section naming the door and the blast radius, and an Evidence section that is not empty. While either fails, the hook refuses the stop, the same way it refuses a failing check, and tells the agent to write the whole description again. Putting the check here matters because a refused stop changes the final message. After fixing a lint failure, an agent tends to end with "Fixed the lint error", and only that message becomes `.result`. A check that ran after the agent finished would send a good PR to a person; the hook makes the agent rewrite its description first. Each line of `gates.jsonl` records `description_problems`, and these refusals count toward the same `MAX_BLOCKS` as failing checks. `passed` still means the checks alone.
+
+The fallback is for a run whose hook gave up refusing. `run-issue.sh` reads the last gate line's `description_problems` with `jq`, after the push, so deciding the label cannot lose the work. If the list is not empty, the draft PR still opens, since filling in a section costs less than a rerun. The script exits 4, and the workflow labels the issue `needs-human` with a comment listing what is missing. The `done` job also accepts `needs-human`, so merging that PR after fixing its description still reaches `done` and records rework.
+
+Tested by: TL-8 (`docs/notes/08-self-explaining-prs.md`).
+
 ### Humans merge: two rulesets and a factory App (TL-10)
 
 The factory acts on GitHub as its own GitHub App, never as the owner and never through Actions' `GITHUB_TOKEN`. An owner token would make the owner the PR author, and GitHub does not let authors approve their own PRs, so the one human here could never approve factory work. `GITHUB_TOKEN` is ruled out twice: PRs it opens do not trigger workflows, so the required check would never run, and letting it open PRs also lets it approve them. The App gets read-write Contents, Pull requests and Issues, and nothing else: without Workflows it cannot edit `.github/workflows`, and without Checks or Commit statuses it cannot post a green check of its own.

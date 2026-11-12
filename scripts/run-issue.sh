@@ -11,7 +11,10 @@
 # otherwise SQLite in .runlog/. Set RUN_LOG_ID to choose the row's id.
 #
 # Exit status: 0 with the PR's URL on stdout; 3 with the agent's question on
-# stdout when it stopped to ask one; anything else means no PR.
+# stdout when it stopped to ask one; 4 when the PR opened but its description
+# still lacks its risk or evidence after the stop hook gave up refusing it (TL-8),
+# with the PR's URL on the first line of stdout and one problem per line after it;
+# anything else means no PR.
 set -euo pipefail
 
 FACTORY=code
@@ -163,10 +166,17 @@ printf '%s\n' "$PROMPT" > "$RUN_DIR/prompt.md"
 SYSTEM="You are running unattended: nobody will answer you during the run or approve anything. \
 Work only in the current directory. Do not commit; the script that started you commits and opens the pull request. \
 If the project has tests, run them before you finish. \
-When you try to finish, a gate runs the project's typecheck, lint and test scripts; while any fails, it tells you which and you keep working. \
+When you try to finish, a gate runs the project's typecheck, lint and test scripts, and checks that your final message is a complete \
+pull request description; while any of that fails, it tells you what and you keep working. \
 If you cannot finish without a decision only a person can make, do not guess: stop, and make your final message \
 start with QUESTION: followed by the one question you need answered. Asking discards your changes. \
-End with a short summary for the pull request description: what changed, how you checked it, and anything left undone."
+Otherwise your final message is the pull request description, written as this skill says:
+
+$(cat "$ROOT/factories/code/skills/pr-description/SKILL.md")
+
+The pull request template:
+
+$(cat "$ROOT/.github/pull_request_template.md")"
 
 jq -n \
   --arg run_id "$RUN_ID" --arg run_log_id "$RUN_LOG_ID" --arg issue "$ISSUE_URL" --arg repo "$REPO" \
@@ -236,7 +246,8 @@ jq \
   '. + {finished_at: $finished_at, exit_code: $exit_code, timed_out: ($exit_code == 142),
         model_id: $model_id, files_changed: $files_changed, github_dir_changed: ($workflows_changed > 0),
         checks_passed: ($gates | last | .passed // false), checks: ($gates | last | .checks // []),
-        gate_attempts: ($gates | length), gate_failures: ($gates | map(select(.passed | not)) | length),
+        description_problems: ($gates | last | .description_problems // []),
+        gate_attempts: ($gates | length), gate_failures: ($gates | map(select((.passed | not) or ((.description_problems // []) | length > 0))) | length),
         result_subtype: $result.subtype, is_error: $result.is_error,
         num_turns: $result.num_turns, duration_ms: $result.duration_ms,
         cost_usd: $result.total_cost_usd, usage: $result.usage,
@@ -282,5 +293,15 @@ PR_URL=$(gh pr create --repo "$REPO" --draft --base "$BASE" --head "$BRANCH" \
 # head_sha is what the run handed off; rework compares the merged PR against it.
 jq --arg pr "$PR_URL" --arg head_sha "$(repo_git rev-parse HEAD)" '. + {pr: $pr, head_sha: $head_sha}' \
   "$RUN_DIR/run.json" > "$RUN_DIR/run.json.tmp" && mv "$RUN_DIR/run.json.tmp" "$RUN_DIR/run.json"
-OUTCOME=done
 echo "$PR_URL"
+# The stop hook refuses an incomplete description, so this is the fallback for a run whose hook gave up blocking.
+# It is read only after the push: deciding the issue's label must not be able to lose the work. The PR stays
+# open so a person can fill in what is missing rather than pay for a rerun.
+DESCRIPTION_PROBLEMS=$(jq -r '.description_problems[]' "$RUN_DIR/run.json")
+if [[ -n $DESCRIPTION_PROBLEMS ]]; then
+  echo "run $RUN_ID: the pull request's description is incomplete; see $RUN_DIR" >&2
+  printf '%s\n' "$DESCRIPTION_PROBLEMS"
+  OUTCOME=needs_human
+  exit 4
+fi
+OUTCOME=done
