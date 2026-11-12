@@ -13,7 +13,7 @@
 #   review     the spec and the PR's diff only, in a clean checkout of the PR's head;
 #              posts the review on the PR and prints the PR's URL
 #
-# The agent works in a fresh clone and can only read and edit that clone and run
+# The agent works in a fresh clone and can only read and write that clone and run
 # sandboxed shell commands; it cannot reach GitHub. For implement, a stop hook refuses
 # to let it finish while the repository's typecheck, lint or test script fails. Each
 # run is recorded under .runlog/runs/<run-id>/ and as a row in the run log
@@ -137,6 +137,9 @@ fi
 # The parser requires Read.
 ALLOWED_TOOLS=("Read(./**)")
 if jq -e '.tools | index("Edit")' <<<"$AGENT" >/dev/null; then ALLOWED_TOOLS+=("Edit(./**)"); fi
+# Write is how an agent creates a file: Edit changes only existing ones, and dontAsk
+# refuses many sandboxed Bash commands that write, even inside the clone (#67).
+if jq -e '.tools | index("Write")' <<<"$AGENT" >/dev/null; then ALLOWED_TOOLS+=("Write(./**)"); fi
 
 # An explicit exit: bash 3.2 gives the EXIT trap a status of 0 after a failed ${VAR:?}.
 if [[ -z ${ANTHROPIC_API_KEY:-} ]]; then
@@ -468,7 +471,7 @@ PR_BODY="$(jq -r '.result // "The agent left no summary."' <<<"$RESULT")
 
 Opened unattended by \`scripts/run-issue.sh\` in [factory-platform](https://github.com/JakobKrzyston/factory-platform). A human reviews and merges.
 
-$(jq -r '"| Run | `\(.run_id)` |\n| --- | --- |\n| Model | \(.model_id) |\n| Tools | \(.tools | join(", ")) (Read and Edit limited to the clone, Bash sandboxed) |\n| Checks | \(if .checks == [] then "none defined" else (.checks | map(.name) | join(", ")) + " passed" end); \(.gate_failures) of \(.gate_attempts) attempts to finish refused |\n| Time limit | \(.time_limit_seconds)s |\n| Turns | \(.num_turns) |\n| Agent time | \(.duration_ms / 1000 | floor)s |\n| Cost | $\(.cost_usd * 100 | round / 100) |"' "$RUN_DIR/run.json")
+$(jq -r '"| Run | `\(.run_id)` |\n| --- | --- |\n| Model | \(.model_id) |\n| Tools | \(.tools | join(", ")) (file tools limited to the clone, Bash sandboxed) |\n| Checks | \(if .checks == [] then "none defined" else (.checks | map(.name) | join(", ")) + " passed" end); \(.gate_failures) of \(.gate_attempts) attempts to finish refused |\n| Time limit | \(.time_limit_seconds)s |\n| Turns | \(.num_turns) |\n| Agent time | \(.duration_ms / 1000 | floor)s |\n| Cost | $\(.cost_usd * 100 | round / 100) |"' "$RUN_DIR/run.json")
 
 Closes #$NUMBER"
 
