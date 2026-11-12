@@ -31,6 +31,8 @@ Implements TL-25`;
 const NO_DOOR = "The Risk section does not say one-way door or two-way door.";
 const NO_RADIUS = "The Risk section does not state the blast radius.";
 const NO_EVIDENCE = "The Evidence section is empty.";
+const BARE_TRAILER_PROBLEM =
+  "The description ends with `Implements TL-` and no number: delete the line, or write the requirement number.";
 const withRisk = (risk: string) => FILLED.replace(/Two-way door.*\n/, `${risk}\n`);
 const withEvidence = (evidence: string) => FILLED.replace(/(## Evidence\n\n)[\s\S]*$/, `$1${evidence}\n`);
 
@@ -39,7 +41,7 @@ test("a filled-in template passes", () => {
 });
 
 test("the unfilled template fails on Risk and Evidence: its hints are comments, not answers", () => {
-  assert.deepEqual(descriptionProblems(TEMPLATE), ["The Risk section is empty.", NO_EVIDENCE]);
+  assert.deepEqual(descriptionProblems(TEMPLATE), ["The Risk section is empty.", NO_EVIDENCE, BARE_TRAILER_PROBLEM]);
 });
 
 test("a plain summary with no sections fails on both", () => {
@@ -91,4 +93,22 @@ test("a subheading stays inside its section; a top-level heading ends it", () =>
 test("headings match by prefix and case", () => {
   const renamed = FILLED.replace("## Risk", "## RISK and blast radius").replace("## Evidence", "## Evidence ##");
   assert.deepEqual(descriptionProblems(renamed), []);
+});
+
+test("a bare Implements TL- trailer is refused on its own", () => {
+  for (const trailer of ["Implements TL-", "**Implements TL-**", "Implements TL-."]) {
+    assert.deepEqual(descriptionProblems(FILLED.replace("Implements TL-25", trailer)), [BARE_TRAILER_PROBLEM], trailer);
+  }
+});
+
+test("a numbered trailer or no trailer passes", () => {
+  assert.deepEqual(descriptionProblems(FILLED.replace("Implements TL-25", "Implements TL-8")), []);
+  assert.deepEqual(descriptionProblems(FILLED.replace("Implements TL-25", "Implements TL-8, TL-9")), []);
+  assert.deepEqual(descriptionProblems(FILLED.replace("\n\nImplements TL-25", "")), []);
+});
+
+test("a bare trailer inside a code fence or an HTML comment is not flagged", () => {
+  const base = FILLED.replace("\n\nImplements TL-25", "");
+  assert.deepEqual(descriptionProblems(`${base}\n\n\`\`\`\nImplements TL-\n\`\`\`\n`), []);
+  assert.deepEqual(descriptionProblems(`${base}\n\n<!-- Implements TL- -->\n`), []);
 });

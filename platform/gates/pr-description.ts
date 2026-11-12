@@ -1,5 +1,5 @@
 /** Checks that a pull request description has the Risk and Evidence sections of .github/pull_request_template.md
- *  filled in (TL-8). Exports descriptionProblems, which the stop hook (stop-hook.ts) runs on the agent's final message. */
+ *  filled in (TL-8), and that it has no `Implements TL-` line without a number. Exports descriptionProblems, which the stop hook (stop-hook.ts) runs on the agent's final message. */
 
 // Hyphen, non-breaking hyphen, en and em dashes and the like, or a space: "two-way", "two‑way", "two way".
 const JOIN = "[\\s\\-\\u2010-\\u2015]*";
@@ -7,6 +7,21 @@ const DOOR = new RegExp(`\\b(one|two)${JOIN}way${JOIN}doors?\\b`, "i");
 const BLAST_RADIUS = new RegExp(`\\bblast${JOIN}radius\\b`, "i");
 // The template's trailer, in any of the ways an agent writes it: "**Implements TL-8**", "Implements TL-8, TL-9."
 const TRAILER = /^[\s*_]*Implements\s+TL-\d*(\s*(,|and|&)?\s*TL-\d+)*[\s*_.]*$/i;
+// A trailer with no number: "Implements TL-", "**Implements TL-**", "Implements TL-.". Separate from TRAILER, which
+// deliberately accepts it so that sections() skips the template's own line.
+const BARE_TRAILER = /^[\s*_]*Implements\s+TL-[\s*_.]*$/i;
+
+/** True when a line outside code fences and HTML comments is a trailer with no requirement number. */
+function hasBareTrailer(body: string): boolean {
+  let fence: string | null = null;
+  for (const line of body.replace(/<!--[\s\S]*?-->/g, "").split("\n")) {
+    const marker = line.match(/^\s*(`{3,}|~{3,})/)?.[1];
+    if (fence === null && marker) fence = marker;
+    else if (fence !== null && marker?.startsWith(fence)) fence = null;
+    else if (fence === null && BARE_TRAILER.test(line)) return true;
+  }
+  return false;
+}
 
 /** Returns the text under each `## ` heading, keyed by the lower-cased heading. HTML comments and the template's
  *  closing `Implements TL-n` line are left out, so neither the template's hints nor its trailer counts as an answer.
@@ -56,6 +71,10 @@ export function descriptionProblems(body: string): string[] {
   const evidence = section("evidence");
   if (evidence === undefined) problems.push("There is no Evidence section.");
   else if (!evidence) problems.push("The Evidence section is empty.");
+
+  if (hasBareTrailer(body)) {
+    problems.push("The description ends with `Implements TL-` and no number: delete the line, or write the requirement number.");
+  }
 
   return problems;
 }
