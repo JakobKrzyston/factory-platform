@@ -277,6 +277,7 @@ export const OUTCOMES: Outcome[] = [
       {
         key: "TL-14",
         title: "Benchmark set of past issues",
+        status: "done",
         description:
           "Ten to twenty closed issues with their merged PRs, each with a written expected outcome and the checks that prove it. Drawn from this repository as it grows, so the benchmark is the factory's own history.",
         workType: "research",
@@ -290,7 +291,7 @@ export const OUTCOMES: Outcome[] = [
       {
         key: "TL-15",
         title: "Replay harness",
-        status: "in_progress",
+        status: "done",
         description:
           "A command that runs the benchmark through a named factory version in isolated checkouts and writes the results to the run log tagged as a benchmark run.",
         workType: "infrastructure",
@@ -327,6 +328,7 @@ export const OUTCOMES: Outcome[] = [
       {
         key: "TL-17",
         title: "Factory definition as a directory",
+        status: "done",
         description:
           "`factories/<name>/` with `factory.yaml`, `agents/`, `triggers/`, `scorers/` and `skills/`. A resource's name is its path. Exactly one agent per factory is the foreman that dispatches the others.",
         workType: "infrastructure",
