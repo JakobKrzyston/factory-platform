@@ -9,7 +9,7 @@
 import { execFileSync, spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { homedir } from "node:os";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
 import { pathToFileURL } from "node:url";
@@ -49,7 +49,11 @@ export async function bench(root: string, factory: string, ref: string, cases: C
   if (!repo) throw new Error("origin is not a GitHub repository");
   const base = git(root, ["rev-parse", "--abbrev-ref", "origin/HEAD"]).replace(/^origin\//, "");
 
-  const work = mkdtempSync(join(tmpdir(), "bench-"));
+  // The clone below goes under this checkout, so under the home directory the agents' sandbox denies: it holds
+  // benchmark/, with each case's expected outcome, and history past every case's base.
+  if (!root.startsWith(`${homedir()}/`)) throw new Error(`run pnpm bench from a checkout under ${homedir()}`);
+  mkdirSync(join(root, ".runlog"), { recursive: true });
+  const work = mkdtempSync(join(root, ".runlog", "bench-"));
   const factoryDir = join(work, "factory");
   const runlogLink = join(factoryDir, ".runlog");
   try {
@@ -62,7 +66,6 @@ export async function bench(root: string, factory: string, ref: string, cases: C
     }
     if (!existsSync(join(factoryDir, "factories", factory))) throw new Error(`${ref} has no factories/${factory}/`);
     // Run directories and SQLite rows land in this checkout's .runlog/, not in the clone deleted below.
-    mkdirSync(join(root, ".runlog"), { recursive: true });
     symlinkSync(join(root, ".runlog"), runlogLink);
     execFileSync("pnpm", ["install", "--frozen-lockfile", "--silent"], { cwd: factoryDir, stdio: "inherit" });
 

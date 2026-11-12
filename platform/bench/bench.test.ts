@@ -83,6 +83,7 @@ if [[ \${1:-} == --version ]]; then echo "0.0.0 (fake)"; exit 0; fi
 while [[ $# -gt 0 ]]; do [[ $1 == --settings ]] && settings=$2; shift; done
 run_dir=$(dirname "$settings")
 cat > /dev/null
+git log --all --format=%H > "$run_dir/history.txt"
 if [[ $(jq -r .role "$run_dir/run.json") == review ]]; then
   result=$'## Findings\\n\\nNone.'
 else
@@ -96,7 +97,7 @@ jq -cn --arg result "$result" '{type: "result", subtype: "success", is_error: fa
 `;
 
 test(
-  "a replay reads and writes nothing on GitHub, pushes nothing, and its rows are benchmark rows the dashboard leaves out",
+  "a replay reads and writes nothing on GitHub, pushes nothing, sees no commit after its base, and its rows are benchmark rows the dashboard leaves out",
   // run-issue.sh starts tsx's CLI, whose IPC socket the gate's sandbox denies.
   { skip: process.env.SANDBOX_RUNTIME === "1" && "run-issue.sh cannot run inside the gate's sandbox" },
   async () => {
@@ -121,6 +122,10 @@ test(
     sh(target, "git", "add", "-A");
     sh(target, "git", "-c", "user.name=t", "-c", "user.email=t@t", "commit", "--quiet", "-m", "base");
     const baseSha = sh(target, "git", "rev-parse", "HEAD");
+    // The commit that closed the issue, which the agent must not be able to read.
+    writeFileSync(join(target, "answer.txt"), "answer\n");
+    sh(target, "git", "add", "-A");
+    sh(target, "git", "-c", "user.name=t", "-c", "user.email=t@t", "commit", "--quiet", "-m", "answer");
 
     // gh fails and records every call; git records every call and then runs.
     const bin = join(work, "bin");
@@ -148,6 +153,7 @@ test(
     assert.equal(implement.status, 0, implement.stderr);
     const patch = implement.stdout.trim();
     assert.match(readFileSync(patch, "utf8"), /\+\+\+ b\/replayed.txt/);
+    assert.equal(readFileSync(join(dirname(patch), "history.txt"), "utf8").trim(), baseSha);
     const review = replay("review", patch);
     assert.equal(review.status, 0, review.stderr);
     assert.match(readFileSync(review.stdout.trim(), "utf8"), /## Findings/);

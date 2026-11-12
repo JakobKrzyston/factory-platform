@@ -21,8 +21,8 @@
 # Set RUN_LOG_ID to choose the row's id, and FACTORY to run a factory other than code.
 #
 # Set REPLAY to a JSON file to replay a benchmark case instead (TL-15; platform/bench/
-# writes it): the clone comes from the local repository `source`, detached at
-# `base_sha`; the issue (`title`, `body`) and its `comments` come from the file, and a
+# writes it): the clone is fetched from the local repository `source` at `base_sha`,
+# with no later commits; the issue (`title`, `body`) and its `comments` come from the file, and a
 # review reviews `patch`, an implement run's changes.patch, committed onto the base. A
 # replay reads nothing from GitHub and writes nothing to it: implement prints the path
 # of its changes.patch and review the path of its review.md instead of publishing them,
@@ -153,9 +153,12 @@ repo_git() { git -C "$WORKDIR" --git-dir="$GIT_DIR_OUTSIDE" --work-tree="$WORKDI
 BRANCH=factory/issue-$NUMBER-$STAMP
 mkdir -p "$RUN_DIR"
 
+# A replay fetches only the base and its history: the repository's later commits
+# hold the PR that closed the issue, which the agent could read with git.
 if [[ -n $REPLAY ]]; then
-  git clone --quiet --no-checkout --separate-git-dir "$GIT_DIR_OUTSIDE" "$(jq -r .source "$REPLAY")" "$WORKDIR"
-  repo_git switch --quiet --detach "$(jq -r .base_sha "$REPLAY")"
+  git init --quiet --separate-git-dir "$GIT_DIR_OUTSIDE" "$WORKDIR"
+  repo_git fetch --quiet "$(jq -r .source "$REPLAY")" "$(jq -r .base_sha "$REPLAY")"
+  repo_git switch --quiet --detach FETCH_HEAD
   BASE=$(jq -r .base "$REPLAY")
   ISSUE=$(jq '{title, body}' "$REPLAY")
 else
