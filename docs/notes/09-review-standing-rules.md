@@ -9,7 +9,7 @@ A human should never have to leave the same review comment twice. Each acceptanc
 | A script collects review comments from merged PRs into a draft rules file | `pnpm standards collect` appends one entry per human review comment on PRs merged in the last 7 days to `standards/draft.md`. It skips comments already linked from `rules.md`, `rejected.md` or the draft. A human promotes each entry to a rule or rejects it. |
 | The review agent cites the rule it applied when it flags a finding | Guidance: `run-issue.sh review` appends the `cite-standards` skill and `rules.md` to the reviewer's prompt. The skill asks for `- [R-n] path:line — severity: text`, or `[no rule]`, under `## Findings`. Gate: a Stop hook refuses the agent's finish while a finding cites nothing or an unknown ID. The script then checks the final review again and posts nothing if it fails. |
 
-The review agent itself is TL-7's (#51), built in parallel, and the two stages agreed the findings format up front. Review of this PR asked for the gate to be wired into the real run (rule 3: guidance plus gates). So this branch is stacked on TL-7's and merges after it, and it does the wiring.
+The review agent itself is TL-7's (#51), built in parallel, and the two stages agreed the findings format up front. Review of this PR asked for the gate to be wired into the real run (rule 3: guidance plus gates). So this branch was stacked on TL-7's and does the wiring. It was rebased onto `main` once TL-7 merged, and again past TL-8. TL-8 also appends to the system prompt, for implement, so the two additions are now one `if`/`elif` in `run-issue.sh`.
 
 ## Happened
 
@@ -32,7 +32,7 @@ It adds no dependency.
 
 Checked:
 
-- **28 unit tests** (`pnpm test`, 84 in all, including TL-7's), as of the review fixes below.
+- **28 unit tests** (`pnpm test`, 107 in all on `main` with TL-7, TL-8 and TL-13), as of the review fixes below.
 - **The collector against GitHub:**
 
   | Repository | Window | Merged PRs | Human comments |
@@ -87,7 +87,7 @@ Checked after the fixes, with real `claude` and a `gh` shim, on factory-sample#3
 
 Known gaps:
 
-- **Not yet run on a real runner.** The wiring has run only locally: TL-7's chain has not run on Actions (see its note), and this branch merges after it.
+- **Not yet run on a real runner.** The review role with its gate has run only locally, with real `claude` and a `gh` shim. The first factory review on Actions after merge is the check.
 - **A reviewer's `QUESTION:` is no longer posted.** TL-7 posted it as the review. It has no `## Findings` section, so the Stop hook now refuses it and the agent has to write a review. After 5 refusals the run fails without posting.
 - **The rules are the factory's, not the target repository's.** Every target gets this repository's `rules.md`, including R-4, which is about this repository's roadmap.
 - **The retro step is manual.** The plan's "a retro step proposes new rules from the week's comments" is the 7-day default window plus a human. No agent proposes rule text yet, and nothing runs `collect` on a schedule.
