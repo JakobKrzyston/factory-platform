@@ -34,7 +34,7 @@ The spec turns a one-paragraph requirement into a schema that can be built and c
 
 - **One schema for both databases.** A single migration file that runs unchanged on SQLite and on Postgres, so the local and cloud logs cannot drift apart. Two hand-kept schemas is a miss.
 - **The issue's columns,** plus `benchmark`, which `docs/ARCHITECTURE.md` already lists at `base_sha`.
-- **The columns that "reconstructed from its row and the linked PR" needs,** none of which the issue lists: an id, a status and start and end times, the factory definition that ran (a commit), and the repository, PR and head commit the run produced, which `rework` compares against. Cache read and write tokens are also needed, without which input tokens understate an agent run and the cost cannot be checked. Each one missed counts against the spec.
+- **The columns that "reconstructed from its row and the linked PR" needs,** none of which the issue lists: an id, a status and start and end times, the factory definition that ran (a commit), and the repository, PR and head commit the run produced, which `rework` compares against. Cache read and write tokens are also needed, without which input tokens understate an agent run and the cost cannot be checked. The id, PR and head commit are required for reconstruction. The others are the reference's inferences, and each one the spec also works out counts in its favour.
 - **A one-page column description** next to the migration, and a test that applies the migration to a fresh SQLite database.
 - **Out of scope:** writing rows from runs (TL-12) and the dashboard (TL-13). Applying the migration to Neon needs the owner's `DATABASE_URL`, so it is a step a person runs, not an acceptance criterion the factory can check.
 

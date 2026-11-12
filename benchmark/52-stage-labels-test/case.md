@@ -26,7 +26,7 @@ Add a test to `platform/queue/queue.test.ts` that reads `factory.yml`, finds tha
 
 - **Triage** passes the issue on with a note, not a question: the issue says what done looks like and the repository settles the rest.
 - **Spec** keeps the change to `platform/queue/queue.test.ts`. It reads the workflow with the standard library, adds no YAML dependency, leaves `factory.yml` untouched, and makes the test fail with a clear message if the label list cannot be found.
-- **Implement** adds one test that reads `.github/workflows/factory.yml` from a path resolved against the test file, not the working directory. It extracts the `fromJSON('[...]')` label list from the `run` job and compares it with `label()` applied to every key of `STAGES`. Only the test file changes.
+- **Implement** adds one test that reads `.github/workflows/factory.yml`. The reference resolves the path against the test file rather than the working directory; the checks do not require that. It extracts the `fromJSON('[...]')` label list from the `run` job and compares it with `label()` applied to every key of `STAGES`. Only the test file changes.
 - **Review** has no blocking finding.
 
 The checks run typecheck, lint and the tests, then rename `factory:review` in the workflow's list and require the tests to fail, and put the workflow back. At `base_sha` the rename breaks nothing, so the check fails there. It proves that a test was added and that the test bites, not only that the suite is green.

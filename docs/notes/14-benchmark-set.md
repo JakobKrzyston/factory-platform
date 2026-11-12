@@ -8,11 +8,20 @@ The case format was agreed before this stage, because TL-15's harness, built in 
 
 ## Happened
 
-**Ten cases, two or more per role, with no new issues needed.** The four tests a case had to pass, and the candidates rejected with reasons, are in `benchmark/README.md`. Three moves made the thin history go further:
+**Ten cases, with implementation one short.** The four tests a case had to pass, and the candidates rejected with reasons, are in `benchmark/README.md`. Three moves made the thin history go further:
 
 - **Triage cases from issues the owner kept away from the factory.** #32, #33 and #35 each needed credentials, a deployment or a security choice outside the repository. Their correct triage outcome is a question, and that is worth testing: a triage agent that passes such an issue on wastes a spec and an implementation run.
 - **Review cases from defects known to survive into a merged diff.** The owner's review of #29 filed #33 and #34 as follow-ups instead of fixing them, so the merged diff still holds three known defects. #41 was found only after #40 merged. A reviewer that sees those diffs has something concrete to find.
 - **Spec-only replays of stage requirements.** A spec replay is capped at the spec agent's $2 budget, while rebuilding a 275-line stage would cost far more. #11's requirement does not list the columns its own acceptance needs, so a spec has to work them out.
+
+**34-process-group-clone started as the second implementation case and became a spec case.** An independent review of the cases pointed out that at its `base_sha` the `test` script was still `tsx --test`. That is exactly #41's bug: the gate's sandbox denies tsx's socket, so an implement replay could never hand in. The case's own check passed only because it ran outside the gate. Every other implementation candidate branched before #44 fixed the script, or needs a deployment or an Actions runner. So `benchmark/README.md` drafts two small chores, a lint fix and a test that keeps `PLAN.md` in step with `roadmap.ts`. Each has a check that fails on today's `main`. Filing them spends money and writes to GitHub, so they wait for the owner.
+
+The same review corrected several smaller claims and loosened four expectations a scorer could not fairly apply:
+
+- 34's spec need not keep a patch, as long as it decides what is kept.
+- 41's spec may ask the owner to choose between the first and third options.
+- 5's review is not credited for repeating a gap `ARCHITECTURE.md` already documented.
+- 11's extra columns count in a spec's favour rather than against it.
 
 **What the agreed format left open, now settled** (TL-15 follows these; the seven keys and their order are unchanged):
 
@@ -28,14 +37,15 @@ The case format was agreed before this stage, because TL-15's harness, built in 
 
 | | |
 | --- | --- |
-| Candidates surveyed | 22 issues (21 closed, 1 open), 21 merged PRs |
-| Cases | 10: 2 implement, 2 spec, 4 triage, 2 review |
+| Candidates surveyed | 22 issues (21 closed, plus the open #55), 21 merged PRs. The 11 unbuilt roadmap issues are not candidates. |
+| Cases | 10: 1 implement, 3 spec, 4 triage, 2 review |
+| Drafted chores for the implementation gap | 2, each with a check that fails on `main` |
 | Triage expectations | 3 must stop, 1 may stop or pass on, 1 must pass on (#52's triage stage) |
 | With a merged reference PR | 9 of 10 |
 | Made by the factory | 2 (#52, #55) |
 | Issue snapshots differing from the current issue | 0 (GitHub shows no edits on any of the ten) |
-| Checks that fail at `base_sha` and pass on the reference | 1 of 2 |
+| Checks that fail at `base_sha` and pass on the reference | 1 of 1 |
 
-The last row is the weak spot. 52-stage-labels-test's check exits 1 at `e69b9b5` and 0 at the reference merge `948f2a6`. It renames a label in the workflow and requires the tests to fail, so a green suite without the new test does not pass. 34-process-group-clone's check exits 0 on both commits, because the behaviour it is about cannot run offline. Every `base_sha`, `pr` and `files` value was checked against GitHub and `git merge-base`, by a throwaway script that is not committed. The harness that reads the cases belongs to TL-15.
+The implementation row is the weak spot. 52-stage-labels-test's check exits 1 at `e69b9b5` and 0 at the reference merge `948f2a6`. It renames a label in the workflow and requires the tests to fail, so a green suite without the new test does not pass. 34-process-group-clone's old check exited 0 on both its commits, which was the first sign that it was a weak implementation case. Every `base_sha`, `pr` and `files` value was checked against GitHub and `git merge-base`, by a throwaway script that is not committed. The harness that reads the cases belongs to TL-15.
 
 The cost of replaying the set is not known yet. #52's implement and review stages cost $0.09 together, and that is the only measured figure. TL-15's first run will give the rest.

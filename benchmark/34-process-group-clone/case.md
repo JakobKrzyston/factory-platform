@@ -2,10 +2,10 @@
 issue: 34
 pr: 43
 base_sha: 787db5dc213fd7d17eb7f0381b909dd2a1494bdf
-role: implement
-stages: spec,implement,review
+role: spec
+stages: spec
 files: scripts/run-issue.sh,docs/ARCHITECTURE.md
-checks: bash -n scripts/run-issue.sh && pnpm typecheck && pnpm lint && pnpm test
+checks:
 ---
 ## Issue
 
@@ -23,10 +23,12 @@ Found in review of PR #29 (TL-4).
 
 ## Expected outcome
 
-- **Spec** settles both of the issue's open points. When the time limit passes, `claude`'s whole process group is killed, not just `claude`, and the time-out keeps an exit status `run.json`'s `timed_out` can recognise. The clone and its outside git directory are deleted when the script exits. Before that, the agent's changes are kept in the run directory as a patch, so a run that opened no PR still shows what it did.
-- **Implement** does this portably. macOS has neither `timeout(1)` nor `setsid(1)`, so the reference uses a small perl wrapper. It also kills the group when `claude` exits normally and when the script is interrupted, and it deletes the clone from the existing `EXIT` trap. Nothing else in the script changes behaviour.
-- **Review** has no blocking finding.
+The spec settles both of the issue's open points, so that the implementer has nothing left to decide:
 
-The checks prove only that the script still parses and that the existing suite passes. They pass at `base_sha` too, because nothing in this repository runs `run-issue.sh` without real GitHub and Claude Code. The behaviour is judged against the reference PR's own evidence: a wrapper run with a child and a grandchild leaves no process behind after the time-out, exits 142, and the clone directory is gone. This is the benchmark's weakest implementation case (see the README).
+- **The time limit kills the whole process group.** When the limit passes, `claude`'s whole process group is killed, not just `claude`. The time-out keeps an exit status that `run.json`'s `timed_out` can recognise. A spec that also covers `claude` exiting normally and the script being interrupted is better. The approach has to work on macOS, which has neither `timeout(1)` nor `setsid(1)`.
+- **What is kept is decided.** The clone and its outside git directory are deleted when the script exits. The spec states what survives. The reference keeps the agent's changes as a patch in the run directory, so a run that opened no PR still shows what it did. A spec that decides the transcript and PR are enough also passes, if it says so. A spec that leaves "what to keep" open is a miss.
+- **Acceptance says how the time-out is checked.** For example: a stub command with a child and a grandchild leaves no process behind after the limit. Nothing in the repository exercises it otherwise.
 
-Reference: PR #43, 30 lines added and 7 removed.
+This is a spec case, not an implementation case. At `base_sha` the `test` script is `tsx --test`, which the gate's sandbox cannot run (#41, fixed by #44 from the same commit). So an implement replay from here could never pass the gate.
+
+Reference: PR #43, 30 lines added and 7 removed, and its Evidence section. A wrapper run with a child and a grandchild exited 142 with no process left. A separate run of a scratch copy of the script, with real Claude Code and then a stub, left no clone behind.

@@ -6,8 +6,8 @@ Ten past issues from this repository. Each one has the outcome it should have re
 
 | Case | Role | Stages | Reference | What it tests |
 | --- | --- | --- | --- | --- |
-| [52-stage-labels-test](52-stage-labels-test/case.md) | implement | triage, spec, implement, review | #53 | The factory's own end-to-end run: a test-only change with a check that the test bites. It is also the one case where triage should pass the issue on. |
-| [34-process-group-clone](34-process-group-clone/case.md) | implement | spec, implement, review | #43 | A shell change with two open decisions: kill the process group, and delete the clone but keep a patch. |
+| [52-stage-labels-test](52-stage-labels-test/case.md) | implement | triage, spec, implement, review | #53 | The factory's own end-to-end run: a test-only change with a check that the test bites. It is also the one case where triage must pass the issue on. |
+| [34-process-group-clone](34-process-group-clone/case.md) | spec | spec | #43 | Settling the issue's two open decisions: kill the process group, and choose what to keep once the clone is deleted. |
 | [41-tsx-gate-sandbox](41-tsx-gate-sandbox/case.md) | spec | spec | #44 | Choosing the safe option when the obvious fix opens a hole, and saying which check only a person can run. |
 | [11-run-log-schema](11-run-log-schema/case.md) | spec | spec | #28 | Turning a one-paragraph requirement into a schema, including the columns that "reconstruct a run" needs. |
 | [55-chain-ends-in-review](55-chain-ends-in-review/case.md) | triage | triage | none | Spotting that the asked-for test already exists. |
@@ -17,7 +17,7 @@ Ten past issues from this repository. Each one has the outcome it should have re
 | [4-run-issue-review](4-run-issue-review/case.md) | review | review | #29 | Finding three defects that survived into the merged diff and were filed as #33 and #34. |
 | [5-quality-gates-review](5-quality-gates-review/case.md) | review | review | #40 | Finding that the gate can never pass on this repository (#41). |
 
-Per role: two implementation cases, two spec cases, four triage cases (plus the triage stage of #52), and two review cases.
+Per role: one implementation case, three spec cases, four triage cases (plus the triage stage of #52), and two review cases. Implementation is one short of the target. The history has no second issue that an implement replay can pass, so two small chores are drafted below for the owner to file.
 
 ## Case format
 
@@ -40,7 +40,7 @@ The body has two sections:
 
 ## How the cases were chosen
 
-The pool was every issue and every merged PR in the repository on 2026-11-12: 21 closed issues and one open issue, and 21 merged PRs. A case had to meet four tests:
+The pool was every issue and every merged PR in the repository on 2026-11-12: 21 closed issues, the open issue #55 (closed PR #56), and 21 merged PRs. The other open issues, #14 to #24, are roadmap requirements not yet built, so they have no outcome to compare against. A case had to meet four tests:
 
 1. **The issue was written before the work,** so a replay starts from what a person actually asked for, not a description of the finished change.
 2. **There is a reference outcome:** a merged PR, or a factory run whose answer the owner accepted.
@@ -55,18 +55,36 @@ Material is thin. Only two issues have ever gone through the factory (#52 and #5
 | --- | --- |
 | #54 | A throwaway issue that checked the `done` job's labels. It describes no work. |
 | #30 | It asks someone to watch Throughline after a merge and record a timing. That makes it a triage case needing outside access, the same kind #32 and #35 already cover. It was closed by hand with no PR. |
-| #10 / #38 | The PR records merge-gate evidence read from GitHub's API in a note. The outcome is that evidence, which a replay cannot produce offline. |
+| #10 / #27, #38 | #27 applies GitHub rulesets with `gh` signed in as a repository admin, and #38 records merge-gate evidence read from GitHub's API in a note. Both outcomes live in GitHub's settings, which a replay cannot change or read offline. |
 | #1, #2, #3 / #25, #26, #36 | The work lives outside the repository: a Throughline instance, a GitHub App, and an MCP server in Throughline's own repository. Their PRs are stage notes and client configuration. |
 | #6 / #39 | It is used as the reference for #33's triage case. As an implementation case it is 505 lines, and its acceptance runs on Actions. |
 | #7, #8, #9, #12, #13 | Stage PRs of 390 to 840 lines. They would make spec cases of the same shape as #11, and another one adds replay cost without testing anything new. Revisit once the spec cases show spread. |
 | #41 / #44 as implementation | Half of it is Linux-only fixes found on a real runner, plus `.github/` changes the factory may not make. It is kept as a spec case. |
+| #34 / #43 as implementation | At its `base_sha` the `test` script is `tsx --test`, which the gate's sandbox cannot run (#41). An implement replay could never pass the gate. It is kept as a spec case. The same applies to every PR that branched before #44. |
 | #35 / #47 as implementation | Done means a deployed Vercel project. It is kept as a triage case. |
 | #55 / #56 as implementation | #56 was never merged. It existed to exercise the incomplete-description path. The issue is kept as a triage case. |
-| #31, #42 | Roadmap and note bookkeeping with no issue behind them. |
+| #31, #42 | Roadmap and note bookkeeping. #31 is a TL-2 follow-up from reviewing the stage note, with no issue describing the work; #42 has no issue at all. |
 | #33 / #39 as review | No defect is known in #39's diff to score a review against. |
 
 ## Known weaknesses
 
-- **Only 52-stage-labels-test has a check that fails at `base_sha` and passes on the reference.** That was confirmed by running it on both commits. 34-process-group-clone's checks pass at `base_sha` too. Its outcome is behaviour (no process left after a time-out, no clone left on disk), and nothing in this repository runs `run-issue.sh` without real GitHub and Claude Code. Its expected outcome is judged against PR #43's evidence instead.
+- **One implementation case.** 52-stage-labels-test is the only one, and its check was confirmed to fail at `base_sha` and pass on the reference. Every other implementation candidate either branched before #44, when the gate could not run this repository's tests, or needs a deployment or a runner.
 - **The review cases have no factory-written spec.** The requirement issue stands in for one. They score whether the reviewer finds defects that are known to be in the diff. They cannot score false positives, because nobody listed what was fine.
+- **Replaying implement on macOS stops at the gate.** The mcp-gateway tests cannot bind `127.0.0.1` inside the sandbox. That is a harness environment limit, not a case failure. The checks themselves run outside the gate.
 - **Every case comes from one owner, over four days, in one repository.** The factory's own future runs are the next source. An issue that goes through the factory and merges, or stops at a question the owner answers, becomes a candidate.
+
+## Drafted chores for the implementation gap
+
+Each would be filed as an issue and labelled `factory:ready`. That spends money and writes to GitHub, so the owner decides. Once one merges through the factory, its case can be added with the check below. Each check fails on `main` today.
+
+**1. Fix the two lint warnings in `scripts/check-merge-gate.ts`**
+
+> `pnpm lint` reports two warnings in `scripts/check-merge-gate.ts`: `noExplicitAny` on `api()`'s return type (line 14) and `noNonNullAssertion` on `keyPath!` (line 29). Fix both without disabling the rules. Give `api()` a typed or `unknown` body that its callers narrow, and check `keyPath` before using it, with the same error the script gives for other missing settings. Only that file changes. `pnpm exec biome lint --error-on-warnings` passes.
+
+Exercises triage (it should pass the issue on), spec and implement. Check: `pnpm typecheck && pnpm exec biome lint --error-on-warnings && pnpm test`.
+
+**2. Test that `docs/PLAN.md` matches `docs/roadmap.ts`**
+
+> Rule R-4 says a change to `docs/roadmap.ts` comes with `docs/PLAN.md` re-rendered, but nothing checks it. Make `scripts/render-plan.ts` export the rendering as a function (running it still writes the file), and add a test under `platform/` that fails when `docs/PLAN.md` differs from what `docs/roadmap.ts` renders. `pnpm test` passes.
+
+Exercises spec (where the test lives, since `pnpm test` reads only `platform/`) and implement. Check: `pnpm test && sed -i.orig 's/Benchmark set of past issues/Benchmark set of old issues/' docs/roadmap.ts && ! pnpm test; s=$?; mv docs/roadmap.ts.orig docs/roadmap.ts; exit $s`.

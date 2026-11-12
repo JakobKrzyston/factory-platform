@@ -135,7 +135,7 @@ Tested by: TL-13 (`docs/notes/13-cost-rework-dashboard.md`). Revisit when someon
 
 ### Benchmark from the repository's own history (TL-14)
 
-The benchmark is closed issues from this repository with their merged PRs and a written expected outcome. It grows as the project does. A factory change is judged by replaying the benchmark on the old and new definition, scored by the files under `scorers/`.
+The benchmark is past issues from this repository, most with a merged PR, and a written expected outcome for each. It grows as the project does. A factory change is judged by replaying the benchmark on the old and new definition, scored by the files under `scorers/`.
 
 Each case is `benchmark/<issue>-<slug>/case.md`. Its settings are `key: value` lines between `---` fences, like `agent.md`:
 

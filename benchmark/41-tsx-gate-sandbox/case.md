@@ -45,6 +45,6 @@ The spec picks the issue's first option and says why the others lose:
 - **Acceptance criteria:** the real stop hook passes on a clone of this repository with a correct change. A test written by the agent still cannot reach the network, a host socket, the home directory or the key file. Each criterion says how it is checked.
 - **Out of scope:** `network.allowAllUnixSockets`, and any other loosening of the sandbox.
 
-The Ubuntu runner half of the acceptance needs a workflow change under `.github/`, which the factory may not make. A good spec says that this check is one a person runs, or asks about it in a `QUESTION:`. A question about which option to choose is a miss, because the issue and the repository settle that.
+The Ubuntu runner half of the acceptance needs a workflow change under `.github/`, which the factory may not make. A good spec says that this check is one a person runs, or asks about it in a `QUESTION:`. A `QUESTION:` asking the owner to choose between the first and third options also passes. The issue itself says the third option is untested. Choosing `network.allowAllUnixSockets` in any form is a miss.
 
 Reference: PR #44 changed the test script to `node --import tsx --test`. It then found and fixed four Linux-only failures on a real runner, which no spec written before that run could have named.

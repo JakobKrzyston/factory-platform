@@ -37,4 +37,4 @@ Triage ends with `QUESTION:`. An unattended run cannot finish this issue, for tw
 
 A good question names that choice, or the deployment the owner has to make. A triage note that passes the issue to the spec agent is a miss.
 
-Reference: the owner chose a third shape, a separate gateway project that holds nothing but `api/mcp.ts` and so fails closed. They deployed it by hand (PR #47).
+Reference: the owner chose a variant of the first option. It is a separate gateway project that holds nothing but `api/mcp.ts`, so it fails closed instead of depending on a flag. They deployed it by hand (PR #47).
