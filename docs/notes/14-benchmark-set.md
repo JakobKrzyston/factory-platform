@@ -71,3 +71,18 @@ Both runs reported environment trouble. In #60's run, implement ran tool binarie
 | Drafted chores that became cases | 1 of 2 |
 
 #62's implement stage cost $0.06 and its review $0.04, close to #52's $0.09 for the same two stages.
+
+## Follow-up: #61 becomes the third implementation case
+
+**Expected.** Once #67 was fixed, a second factory run on #61 would add the missing test, and #61 would become a case.
+
+**Happened.** #68 gave implement a Write tool, and #61 was reopened and labelled `factory:ready`. The chain ran all four stages, and #70 merged with `platform/plan/plan.test.ts`. Implement created the file with Write, had no permission denials and passed the gate on its first attempt. The case `61-plan-matches-roadmap` uses #70 as its reference and #70's merge-base `cdc2e1b` as `base_sha`. That base already has #63's `renderPlan()` export, so the case tests whether the factory notices half the issue is done.
+
+The check must run in a git checkout. Run in a `git archive` export, `platform/bench/bench.test.ts` fails on `git ls-files`, so the check fails on the reference too. In a `git clone`, it exits 1 at `cdc2e1b` (130 pass, and the rename breaks nothing) and 0 at #70's head (131 pass, then 1 fails after the rename). It leaves the checkout clean.
+
+| | |
+| --- | --- |
+| Cases | 12: 3 implement, 3 spec, 4 triage, 2 review |
+| Made by the factory | 4 (#52, #55, #60, #61) |
+| Implementation checks that fail at `base_sha` and pass on the reference | 3 of 3 |
+| Drafted chores that became cases | 2 of 2 |
