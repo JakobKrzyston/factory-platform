@@ -1,8 +1,10 @@
 /** Tests the queue's label arithmetic and claim rule. Run: pnpm test */
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { test } from "node:test";
+import { fileURLToPath } from "node:url";
 
-import { claimRefusal, labelChanges, mergedFactoryPr, moveRefusal, STAGES } from "./queue";
+import { claimRefusal, label, labelChanges, mergedFactoryPr, moveRefusal, STAGES } from "./queue";
 
 test("a transition swaps the old factory label for the new one and keeps other labels", () => {
   assert.deepEqual(labelChanges(["bug", "factory:ready"], "in-progress"), {
@@ -67,4 +69,14 @@ test("an issue is done only when the factory's own pull request for it merged", 
   assert.equal(mergedFactoryPr([pr("fix-typo"), pr("factory/issue-12-20261111T000000Z")], "1"), null);
   assert.equal(mergedFactoryPr([pr("factory/issue-1-20261111T000000Z", true)], "1"), null);
   assert.equal(mergedFactoryPr([pr("factory/issue-1-20261111T000000Z")], "1"), "https://x/factory/issue-1-20261111T000000Z");
+});
+
+test("factory.yml's run-job labels match the keys of STAGES", () => {
+  const path = fileURLToPath(new URL("../../.github/workflows/factory.yml", import.meta.url));
+  const match = /fromJSON\('(\[[^']*\])'\)/.exec(readFileSync(path, "utf8"));
+  assert.ok(match, "factory.yml has no fromJSON('[...]') label list");
+  const listed: unknown = JSON.parse(match[1]);
+  assert.ok(Array.isArray(listed) && listed.every((l) => typeof l === "string"), "the label list is not an array of strings");
+  const expected = Object.keys(STAGES).map((stage) => label(stage as keyof typeof STAGES));
+  assert.deepEqual([...(listed as string[])].sort(), expected.sort());
 });
