@@ -20,6 +20,7 @@
     "merge-gate": "tsx scripts/apply-rulesets.ts",
     "check-merge-gate": "tsx scripts/check-merge-gate.ts",
     "queue": "tsx platform/queue/queue.ts",
+    "standards": "tsx platform/standards/standards.ts",
     "check-webhook": "tsx --env-file-if-exists=.env.local platform/health/webhook.ts"
   },
   "devDependencies": {

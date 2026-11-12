@@ -26,4 +26,4 @@ The role's system prompt.
 - `tools` is a subset of `Bash`, `Edit` and `Read`, the three tools `run-issue.sh` confines. Any other tool is refused, since it would run outside the confinement.
 - Every setting is required and an unknown one is refused (`platform/agents/agent.ts`).
 
-What each role receives and what happens to its answer is the platform's contract, in `run-issue.sh`, and stays the same when a definition changes. The prompt says what to do with it. The review prompt fixes the format of the findings: the run log counts the bullets of its last `## Findings` section as `review_findings`.
+What each role receives and what happens to its answer is the platform's contract, in `run-issue.sh`, and stays the same when a definition changes. The prompt says what to do with it. The review prompt fixes the format of the findings, and `run-issue.sh` appends `review/skills/cite-standards/SKILL.md` and `standards/rules.md` to it. Every list item under the one `## Findings` section cites a rule, `[R-n]`, or says `[no rule]`. A Stop hook and then the script enforce that (`platform/standards/`), and the script's count of those findings is `review_findings`.

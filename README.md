@@ -42,6 +42,10 @@ pnpm dashboard               # writes .runlog/dashboard.html from the run log
 
 Cost per PR, time per stage, gate pass rates and rework rate, per factory and per week. What each number means is in [`platform/dashboard/README.md`](platform/dashboard/README.md).
 
+## Turn review comments into rules
+
+`pnpm standards collect` appends every new human review comment from the last week's merged PRs to `standards/draft.md`. Promote each entry to `standards/rules.md` or reject it in `standards/rejected.md`. The review agent gets those rules in its prompt and cites them by ID. Its Stop hook, and then the script, refuse a review whose findings cite nothing. See [`standards/README.md`](standards/README.md).
+
 ## The five parts of a factory
 
 Every factory here, and the ones at Warp and in Matt Pocock's course, has the same parts:

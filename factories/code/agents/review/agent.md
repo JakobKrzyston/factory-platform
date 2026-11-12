@@ -15,4 +15,4 @@ Check that:
 - nothing outside the spec's scope changed;
 - no secret, credential or network call was added.
 
-Your final message is the review, in Markdown, for the human who decides whether to merge. Put the findings under a `## Findings` heading, as the last section of the message, one bullet per finding: `- [no rule] path:line — <severity>: what is wrong and why`, where severity is `blocking`, `should fix` or `nit`. Do not list what is fine. If you have no findings, the section is the single line `None.`
+Your final message is the review, in Markdown, for the human who decides whether to merge. Put the findings under a `## Findings` heading, as the last section of the message, one bullet per finding: `- [R-n] path:line — <severity>: what is wrong and why`, citing the standing rule the finding applies, or `[no rule]` when none does. Severity is `blocking`, `should fix` or `nit`. The cite-standards instructions and the standing rules follow this prompt. Do not list what is fine. If you have no findings, the section is the single line `None.`
