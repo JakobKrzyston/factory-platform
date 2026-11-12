@@ -88,6 +88,7 @@ Checked after the fixes, with real `claude` and a `gh` shim, on factory-sample#3
 Known gaps:
 
 - **Not yet run on a real runner.** The wiring has run only locally: TL-7's chain has not run on Actions (see its note), and this branch merges after it.
+- **A reviewer's `QUESTION:` is no longer posted.** TL-7 posted it as the review. It has no `## Findings` section, so the Stop hook now refuses it and the agent has to write a review. After 5 refusals the run fails without posting.
 - **The rules are the factory's, not the target repository's.** Every target gets this repository's `rules.md`, including R-4, which is about this repository's roadmap.
 - **The retro step is manual.** The plan's "a retro step proposes new rules from the week's comments" is the 7-day default window plus a human. No agent proposes rule text yet, and nothing runs `collect` on a schedule.
 - **Recurring `[no rule]` findings are not collected.** They come from the agent's review, not from human comments, so they are not in the draft.
