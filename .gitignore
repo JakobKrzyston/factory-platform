@@ -1,7 +1,8 @@
 node_modules/
 .env
 .env.local
-.runlog/
+# No trailing slash: pnpm bench links a replayed version's .runlog to this checkout's (TL-15).
+.runlog
 
 # wt local config (per-machine paths)
 .wt.toml

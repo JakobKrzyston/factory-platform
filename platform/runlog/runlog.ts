@@ -2,7 +2,7 @@
  *  PR merges. Exports openRunLog, startRun, finishRun, measure and recordRework; run as a CLI by run-issue.sh
  *  and the factory workflow. Postgres when DATABASE_URL is set, otherwise SQLite in .runlog/.
  *
- *  tsx platform/runlog/runlog.ts start <id> <factory> <role> <factory_sha> <model> <owner/repo> <issue>
+ *  tsx platform/runlog/runlog.ts start <id> <factory> <role> <factory_sha> <model> <owner/repo> <issue> [benchmark]
  *  tsx platform/runlog/runlog.ts finish <id> <done|needs_human|failed> [run-dir]
  *  tsx platform/runlog/runlog.ts rework <owner/repo> <issue>        needs `gh` signed in */
 import { existsSync, readFileSync } from "node:fs";
@@ -49,14 +49,24 @@ export async function openRunLog(url = process.env.DATABASE_URL, path = DEFAULT_
 }
 
 /** Inserts a run's row with status `running`.
- *  Args: db: the run log; run: the identity columns (see README.md). */
+ *  Args: db: the run log; run: the identity columns (see README.md), and `benchmark` for a replay (TL-15),
+ *  which keeps the row out of production metrics. */
 export async function startRun(
   db: RunLog,
-  run: { id: string; factory: string; role: string; factory_sha: string; model: string; repo: string; issue: number },
+  run: {
+    id: string;
+    factory: string;
+    role: string;
+    factory_sha: string;
+    model: string;
+    repo: string;
+    issue: number;
+    benchmark?: boolean;
+  },
 ): Promise<void> {
   await db.query(
-    "INSERT INTO runs (id, factory, role, factory_sha, model, repo, issue, started_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-    [run.id, run.factory, run.role, run.factory_sha, run.model, run.repo, run.issue, new Date().toISOString()],
+    "INSERT INTO runs (id, factory, role, factory_sha, model, repo, issue, benchmark, started_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    [run.id, run.factory, run.role, run.factory_sha, run.model, run.repo, run.issue, run.benchmark ?? false, new Date().toISOString()],
   );
 }
 
@@ -216,14 +226,14 @@ function githubPr(repo: string, pr: number): { merged: boolean; head: string } {
 }
 
 const USAGE = `usage:
-  runlog.ts start <id> <factory> <role> <factory_sha> <model> <owner/repo> <issue>
+  runlog.ts start <id> <factory> <role> <factory_sha> <model> <owner/repo> <issue> [benchmark]
   runlog.ts finish <id> <done|needs_human|failed> [run-dir]
   runlog.ts rework <owner/repo> <issue>`;
 
 if (import.meta.url === pathToFileURL(process.argv[1]).href) {
   const [command, ...args] = process.argv.slice(2);
   const valid =
-    (command === "start" && args.length === 7) ||
+    (command === "start" && (args.length === 7 || (args.length === 8 && args[7] === "benchmark"))) ||
     (command === "finish" && (args.length === 2 || args.length === 3)) ||
     (command === "rework" && args.length === 2);
   if (!valid) {
@@ -233,8 +243,8 @@ if (import.meta.url === pathToFileURL(process.argv[1]).href) {
   const db = await openRunLog();
   try {
     if (command === "start") {
-      const [id, factory, role, factory_sha, model, repo, issue] = args;
-      await startRun(db, { id, factory, role, factory_sha, model, repo, issue: Number(issue) });
+      const [id, factory, role, factory_sha, model, repo, issue, benchmark] = args;
+      await startRun(db, { id, factory, role, factory_sha, model, repo, issue: Number(issue), benchmark: benchmark === "benchmark" });
     } else if (command === "finish") {
       const [id, status, runDir] = args;
       if (await finishRun(db, id, status, runDir)) console.error(`run log: ${id} ended ${status}`);
