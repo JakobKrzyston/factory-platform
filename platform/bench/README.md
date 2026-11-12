@@ -17,7 +17,7 @@ case                  role       outcome      checks  cost   wall time
 total                                                 $0.13  53s
 ```
 
-`outcome` is the row's `status`: `done`, `needs_human` (a question, or an incomplete PR description), `failed`, or `skipped` when `--max-usd` was reached. `checks` is `checks_passed`: implement's gate. A stage that does not end `done` ends its case, so later stages do not appear. Above, the implement agent asked a question because the gate's sandbox on macOS cannot run this repository's MCP gateway tests (`docs/notes/15-replay-harness.md`).
+`outcome` is the row's `status`: `done`, `needs_human` (a question, or an incomplete PR description), `failed`, or `skipped` when `--max-usd` was reached. `checks` is `checks_passed`: implement's gate. A stage that does not end `done` ends its case, so later stages do not appear. Above, the implement agent asked a question because the gate's sandbox on macOS could not yet run this repository's MCP gateway tests (`docs/notes/15-replay-harness.md`, fixed by #64).
 
 ## What a case gives the harness
 

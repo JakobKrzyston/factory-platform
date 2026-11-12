@@ -71,7 +71,6 @@ Material is thin. Only two issues have ever gone through the factory (#52 and #5
 
 - **Two implementation cases, both small.** 52-stage-labels-test and 60-merge-gate-lint are the only ones. Each check was confirmed to fail at `base_sha` and pass on the reference. Both are one-file changes, so they say little about a factory's handling of larger work. Every other implementation candidate either branched before #44, when the gate could not run this repository's tests, or needs a deployment or a runner.
 - **The review cases have no factory-written spec.** The requirement issue stands in for one. They score whether the reviewer finds defects that are known to be in the diff. They cannot score false positives, because nobody listed what was fine.
-- **Replaying implement on macOS stops at the gate.** The mcp-gateway tests cannot bind `127.0.0.1` inside the sandbox (#64). That is a harness environment limit, not a case failure. The checks themselves run outside the gate.
 - **Every case comes from one owner, over four days, in one repository.** The factory's own future runs are the next source. An issue that goes through the factory and merges, or stops at a question the owner answers, becomes a candidate.
 
 ## Drafted chores for the implementation gap
