@@ -115,6 +115,15 @@ $(cat "$ROOT/factories/code/skills/pr-description/SKILL.md")
 The pull request template:
 
 $(cat "$ROOT/.github/pull_request_template.md")"
+# The reviewer works in a clone of the target repository, which has no standards/,
+# so the standing rules and how to cite them go into its prompt (TL-9). The awk
+# drops the skill's front matter.
+elif [[ $ROLE == review ]]; then
+  SYSTEM+="
+
+$(awk 'fences >= 2; /^---$/ { fences++ }' "$ROOT/factories/$FACTORY/agents/review/skills/cite-standards/SKILL.md")
+
+$(cat "$ROOT/standards/rules.md")"
 fi
 # The parser requires Read.
 ALLOWED_TOOLS=("Read(./**)")
@@ -199,12 +208,16 @@ jq -n --arg checkout "$WORKDIR" --arg run_dir "$RUN_DIR" --arg home "$HOME" --ar
 # Bash runs in the OS sandbox: writes only inside the clone, no reads of the
 # owner's home directory or the key, no network. The stop hook runs outside it,
 # and runs the checks in a sandbox of its own (platform/gates/checks.ts). It runs
-# from $ROOT so that tsx does not load the clone's tsconfig.json. Only implement
-# hands in changes, so only implement is gated.
+# from $ROOT so that tsx does not load the clone's tsconfig.json. Implement hands
+# in changes and is gated by the checks; review hands in findings and is gated by
+# their citations of the standing rules (TL-9), which run no code from the clone.
 HOOKS='{}'
 if [[ $ROLE == implement ]]; then
   HOOKS=$(jq -n --arg command "cd \"$ROOT\" && node_modules/.bin/tsx platform/gates/stop-hook.ts \"$RUN_DIR/gate.json\"" \
     '{Stop: [{hooks: [{type: "command", command: $command, timeout: 600}]}]}')
+elif [[ $ROLE == review ]]; then
+  HOOKS=$(jq -n --arg command "cd \"$ROOT\" && node_modules/.bin/tsx platform/standards/standards.ts review-hook \"$RUN_DIR/gates.jsonl\"" \
+    '{Stop: [{hooks: [{type: "command", command: $command, timeout: 60}]}]}')
 fi
 # The reviewer may not read the git metadata either: the PR's commit message holds
 # the issue's title, and other factory branches hold earlier attempts.
@@ -365,10 +378,15 @@ fi
 
 # Posted as a comment, never as a review: the factory never approves (TL-10).
 if [[ $ROLE == review ]]; then
-  # The bullets of the last "## Findings" section (agent.md sets the format); none
-  # if the review has no such section, so the run log says unknown rather than 0.
-  FINDINGS=$(awk '/^## Findings[[:space:]]*$/ { seen = 1; inside = 1; n = 0; next }
-    inside && /^#/ { inside = 0 } inside && /^- / { n++ } END { if (seen) print n }' <<<"$SUMMARY")
+  # The stop hook gave the agent its chances; this is the check that decides. A
+  # review whose findings do not each cite a standing rule is not posted (TL-9).
+  printf '%s\n' "$SUMMARY" > "$RUN_DIR/review.md"
+  if ! CITATIONS=$(cd "$ROOT" && node_modules/.bin/tsx platform/standards/standards.ts check-review "$RUN_DIR/review.md" 2>"$RUN_DIR/check-review.txt"); then
+    echo "run $RUN_ID: the review's findings do not each cite a standing rule, so it was not posted; see $RUN_DIR/check-review.txt" >&2
+    exit 1
+  fi
+  # check-review prints "<findings> findings, <cited> citing a rule".
+  FINDINGS=${CITATIONS%% *}
   # The reviewed commit is reviewed_sha, not head_sha: rework compares the merged
   # head with the commit the implementer handed off.
   jq --arg pr "$PR_URL" --arg reviewed_sha "$PR_HEAD" --arg findings "$FINDINGS" \

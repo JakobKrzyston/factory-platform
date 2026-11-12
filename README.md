@@ -44,7 +44,7 @@ Cost per PR, time per stage, gate pass rates and rework rate, per factory and pe
 
 ## Turn review comments into rules
 
-`pnpm standards collect` writes every human review comment from the last week's merged PRs to `standards/draft.md`. Promote the ones worth keeping into `standards/rules.md`. The review agent cites those rules by ID, and `pnpm standards check-review <review.md>` refuses a review whose findings cite nothing. See [`standards/README.md`](standards/README.md).
+`pnpm standards collect` appends every new human review comment from the last week's merged PRs to `standards/draft.md`. Promote each entry to `standards/rules.md` or reject it in `standards/rejected.md`. The review agent gets those rules in its prompt and cites them by ID. Its Stop hook, and then the script, refuse a review whose findings cite nothing. See [`standards/README.md`](standards/README.md).
 
 ## The five parts of a factory
 
