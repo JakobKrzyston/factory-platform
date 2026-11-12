@@ -1,6 +1,6 @@
 # agents
 
-One folder per role, each holding an `agent.md`. The queue (`platform/queue/`) chains them by label: `factory:ready` starts `triage`, then `factory:spec`, `factory:implement` and `factory:review` start the role of the same name. `scripts/run-issue.sh <role> <issue-url>` runs one.
+One folder per role, each holding an `agent.md`. The factory's triggers (`../triggers/`) chain them by label: `factory:ready` starts `triage`, then `factory:spec`, `factory:implement` and `factory:review` start the role of the same name. `scripts/run-issue.sh <role> <issue-url>` runs one.
 
 | Role | Given | Produces |
 | --- | --- | --- |

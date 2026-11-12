@@ -1,13 +1,20 @@
 # Factory: code
 
-The first factory. Turns a `factory:ready` issue on this repository into a reviewed pull request.
-
-Until TL-17 moves the first working factory into this layout, these directories hold only their READMEs. The layout follows Warp's convention: a resource's name is its path, one agent is the foreman, `skills/` at this level is shared by every agent here.
+The first factory. Turns a `factory:ready` issue on this repository into a reviewed pull request. The format of every file here is in [`../README.md`](../README.md).
 
 ```
-factory.yaml      name, repositories, defaults (model, harness), which agent is the foreman
-agents/<role>/    agent.md: prompt, model, allowed tools; skills/ for that role only
-triggers/<name>/  what starts a run (label added, PR opened, schedule) and which agent it calls
-scorers/<name>/   scorer.md: how a benchmark result is graded
-skills/           shared by every agent in this factory
+factory.yaml                 serves JakobKrzyston/factory-platform; the foreman is triage
+agents/                      triage, spec, implement, review (agents/README.md)
+triggers/                    the chain below, one folder per label (triggers/README.md)
+skills/pr-description/       how implement writes the PR description its gate checks
+scorers/                     empty until TL-16
 ```
+
+The chain, from `triggers/`:
+
+| Trigger | Label | Agent | Success moves to |
+| --- | --- | --- | --- |
+| `ready` | `factory:ready` | `triage` (the foreman) | `factory:spec` |
+| `spec` | `factory:spec` | `spec` | `factory:implement` |
+| `implement` | `factory:implement` | `implement` | `factory:review` |
+| `review` | `factory:review` | `review` | `factory:in-review`, where a human reviews and merges |
