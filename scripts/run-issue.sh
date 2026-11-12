@@ -41,19 +41,6 @@ ISSUE_URL=$2
 REPO=${BASH_REMATCH[1]}
 NUMBER=${BASH_REMATCH[2]}
 
-# The definition is validated before anything runs: only the tools this script
-# confines are accepted (platform/agents/agent.ts).
-AGENT_FILE=$ROOT/factories/$FACTORY/agents/$ROLE/agent.md
-AGENT=$(cd "$ROOT" && node_modules/.bin/tsx platform/agents/agent.ts "$AGENT_FILE")
-MODEL=$(jq -r .model <<<"$AGENT")
-TIME_LIMIT_SECONDS=$(jq -r .time_limit_seconds <<<"$AGENT")
-BUDGET_USD=$(jq -r .budget_usd <<<"$AGENT")
-TOOLS=$(jq -r '.tools | join(",")' <<<"$AGENT")
-SYSTEM=$(jq -r .prompt <<<"$AGENT")
-ALLOWED_TOOLS=()
-if jq -e '.tools | index("Read")' <<<"$AGENT" >/dev/null; then ALLOWED_TOOLS+=("Read(./**)"); fi
-if jq -e '.tools | index("Edit")' <<<"$AGENT" >/dev/null; then ALLOWED_TOOLS+=("Edit(./**)"); fi
-
 # Not exported: the agent is started with only PATH and HOME, so nothing in
 # .env.local or the caller's shell can be read from its environment and
 # written into a public PR.
@@ -74,7 +61,15 @@ FACTORY_SHA=$(git -C "$ROOT" rev-parse HEAD)
 if [[ -n $(git -C "$ROOT" status --porcelain) ]]; then
   FACTORY_SHA+=-dirty-$(git -C "$ROOT" diff HEAD | git hash-object --stdin | cut -c1-12)
 fi
-# Before anything that can fail, so every run that gets this far has a row.
+
+# The definition is validated before anything runs: only the tools this script
+# confines are accepted (platform/agents/agent.ts). A definition that does not
+# parse, which the meta-factory could write, still gets a row, with model
+# "unknown", ended as failed below.
+AGENT_FILE=$ROOT/factories/$FACTORY/agents/$ROLE/agent.md
+AGENT=$(cd "$ROOT" && node_modules/.bin/tsx platform/agents/agent.ts "$AGENT_FILE") || AGENT=null
+MODEL=$(jq -r '.model // "unknown"' <<<"$AGENT")
+# Before anything else that can fail, so every run that gets this far has a row.
 runlog start "$RUN_LOG_ID" "$FACTORY" "$ROLE" "$FACTORY_SHA" "$MODEL" "$REPO" "$NUMBER"
 
 # Claude Code reads the key through apiKeyHelper from a file the agent is
@@ -95,6 +90,18 @@ trap 'status=$?
   rm -rf "$KEY_DIR" "$CLONE_PARENT" "$GIT_PARENT"
   runlog finish "$RUN_LOG_ID" "$OUTCOME" "$RUN_DIR" || echo "run log: could not end row $RUN_LOG_ID" >&2
   exit $status' EXIT
+
+if [[ $AGENT == null ]]; then
+  echo "run: $AGENT_FILE is not a valid agent definition" >&2
+  exit 1
+fi
+TIME_LIMIT_SECONDS=$(jq -r .time_limit_seconds <<<"$AGENT")
+BUDGET_USD=$(jq -r .budget_usd <<<"$AGENT")
+TOOLS=$(jq -r '.tools | join(",")' <<<"$AGENT")
+SYSTEM=$(jq -r .prompt <<<"$AGENT")
+# The parser requires Read.
+ALLOWED_TOOLS=("Read(./**)")
+if jq -e '.tools | index("Edit")' <<<"$AGENT" >/dev/null; then ALLOWED_TOOLS+=("Edit(./**)"); fi
 
 # An explicit exit: bash 3.2 gives the EXIT trap a status of 0 after a failed ${VAR:?}.
 if [[ -z ${ANTHROPIC_API_KEY:-} ]]; then
@@ -161,6 +168,8 @@ fi
 # Only after installing: the PR's head is agent-written, and pnpm runs a
 # .pnpmfile.cjs it finds even with --ignore-scripts, outside any sandbox.
 if [[ $ROLE == review ]]; then
+  # Fetched by commit: a push to the PR after the clone leaves the listed head out of it.
+  repo_git fetch --quiet origin "$PR_HEAD"
   repo_git switch --quiet --detach "$PR_HEAD"
   DIFF=$(repo_git diff "origin/$PR_BASE...HEAD")
 elif [[ $ROLE == implement ]]; then
@@ -375,6 +384,13 @@ Opened unattended by \`scripts/run-issue.sh\` in [factory-platform](https://gith
 $(jq -r '"| Run | `\(.run_id)` |\n| --- | --- |\n| Model | \(.model_id) |\n| Tools | \(.tools | join(", ")) (Read and Edit limited to the clone, Bash sandboxed) |\n| Checks | \(if .checks == [] then "none defined" else (.checks | map(.name) | join(", ")) + " passed" end); \(.gate_failures) of \(.gate_attempts) attempts to finish refused |\n| Time limit | \(.time_limit_seconds)s |\n| Turns | \(.num_turns) |\n| Agent time | \(.duration_ms / 1000 | floor)s |\n| Cost | $\(.cost_usd * 100 | round / 100) |"' "$RUN_DIR/run.json")
 
 Closes #$NUMBER"
+
+# A human may close the issue while the agent works; a PR that says "Closes #N"
+# would then reopen nothing and only add noise.
+if [[ $(gh issue view "$ISSUE_URL" --json state --jq .state) != OPEN ]]; then
+  echo "run $RUN_ID: #$NUMBER was closed during the run, so no pull request; see $RUN_DIR" >&2
+  exit 1
+fi
 
 repo_git add -A
 repo_git commit --quiet -m "Resolve #$NUMBER: $TITLE"

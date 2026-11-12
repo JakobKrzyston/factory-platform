@@ -20,7 +20,7 @@ Decisions:
 
 ## Happened
 
-- Unit tests: 7 for the parser (every setting required, unknown settings refused, unconfined tools refused, Read required), 4 that the real definitions parse, 2 for the chain and per-stage claims, and 1 for `review_findings` reaching the row. `pnpm test`: 56 pass. Typecheck and lint are clean.
+- Unit tests: 7 for the parser (every setting required, unknown settings refused, unconfined tools refused, Read required), 4 that the real definitions parse, 2 for the chain and per-stage claims, 2 for the closed-issue and merged-PR rules, and 1 for `review_findings` reaching the row without a `head_sha`. `pnpm test`: 58 pass. Typecheck and lint are clean.
 - Live, against [factory-sample#3](https://github.com/JakobKrzyston/factory-sample/issues/3), with real `claude` and real model calls, read-only on GitHub:
   - **Triage** ran on `claude-haiku-5-5` with `Read(./**)` and sandboxed Bash, no stop hook and `checks_passed` null. It produced a sound note: it flagged the unnamed option, the ellipsis counting toward `max`, and the "no whole word fits" case. 6 turns, $0.002.
   - **Spec** ran on Sonnet and produced 9 checkable criteria, an approach, tests and out-of-scope items, under the spec marker. 4 turns, $0.04.
@@ -40,6 +40,16 @@ Decisions:
     - The reviewer is told its dependencies come from the base branch.
 
   A second live review after the fixes found the same two problems, grading the first `should fix` rather than `blocking`. The severity varies between runs; the findings did not.
+- A second code review found ten problems; nine are fixed and one got a comment:
+  - **A run that ended after the issue closed put a label back on it**, overwriting `done`, and implement could open a `Closes #N` PR for a closed issue. A closed issue now moves only to `done` (`moveRefusal`), and implement re-reads the issue's state before pushing.
+  - **An issue a human closed without a factory PR, such as one a question had parked, became `done`.** The `done` job now looks for the factory's merged PR first (`mergedFactoryPr`).
+  - **An invalid `agent.md` ended the run without a row.** The row now starts before the parse, with model `unknown`.
+  - **Implement was told to follow a maintainer over the spec, which the reviewer would flag.** Implement now asks instead, the spec follows the maintainer, and the question comment says to re-add `factory:spec` when an answer changes the spec.
+  - **A push between the clone and the PR listing left the reviewed commit out of the clone.** It is now fetched by SHA.
+  - **`description` was not required, and `budget_usd: Infinity` reached `claude` as `null`.** Both are refused now.
+  - Smaller: dead `Read` check removed, the review-run test now uses the shape a review writes (`reviewed_sha`, no `head_sha`), and the queue README and ARCHITECTURE describe the chain.
+  - Checked by running them: `run-issue.sh triage` with `budget_usd: Infinity` left a row with model `unknown`, ended `failed`, and one with a valid definition and no API key left a row too. Fetching by SHA a closed PR's head commit, absent from a fresh clone, then switching to it, worked against GitHub.
+  - Commented, not restructured: the run job's list of stage labels is copied from `STAGES`. Matching any `factory:*` label instead would start a runner job for every `in-progress`, `in-review`, `needs-human` and `done` the App adds, each queueing in the issue's concurrency group. The list now says to change both together; the `done` job no longer lists labels at all.
 - Not checked before merge: the chain on real runners. `issues` workflows run only from the default branch, and the `factory` environment deploys from `main` only. That includes whether a label the App adds starts the next workflow run. GitHub says events from an App token do, unlike `GITHUB_TOKEN`, but it has not been seen here.
 
 ## What the numbers said

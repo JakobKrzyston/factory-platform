@@ -5,6 +5,7 @@
  *  pnpm queue claim <owner/repo> <issue> <state>         prints true and moves <state> -> in-progress, or prints false
  *  pnpm queue stage <state>                              prints the role a state queues and the state after it
  *  pnpm queue set <owner/repo> <issue> <state> [comment.md]
+ *  pnpm queue done <owner/repo> <issue>                  moves a closed issue to done if the factory's PR merged
  *
  *  Needs `gh` signed in: as a repo admin for setup, as the factory App otherwise. */
 import { execFileSync } from "node:child_process";
@@ -75,12 +76,39 @@ export function gh(args: string[], input?: string): string {
   return execFileSync("gh", args, { input, encoding: "utf8" });
 }
 
+/** Decides whether an issue may move to a state. A closed issue moves only to `done`, so a run that ends after
+ *  a human closed the issue cannot put a stage or `needs-human` label back on it.
+ *
+ *  Args:
+ *    issue: the issue's current state, read just before the move.
+ *    to: the state to move it to.
+ *  Returns: null if it may move, otherwise why not. */
+export function moveRefusal(issue: { state: string }, to: State): string | null {
+  return issue.state !== "open" && to !== "done" ? "the issue is closed" : null;
+}
+
+/** Finds the factory's merged pull request for an issue: one from a branch of this repository named
+ *  `factory/issue-<n>-...`, the name run-issue.sh gives it.
+ *
+ *  Args:
+ *    prs: the repository's merged pull requests.
+ *    issue: the issue number.
+ *  Returns: the pull request's URL, or null if none of them is the factory's for this issue. */
+export function mergedFactoryPr(
+  prs: { url: string; headRefName: string; isCrossRepository: boolean }[],
+  issue: string,
+): string | null {
+  const pr = prs.find((pr) => !pr.isCrossRepository && pr.headRefName.startsWith(`factory/issue-${issue}-`));
+  return pr ? pr.url : null;
+}
+
 function readIssue(repo: string, issue: string): { state: string; labels: string[] } {
   const data = JSON.parse(gh(["api", `repos/${repo}/issues/${issue}`]));
   return { state: data.state, labels: data.labels.map((l: { name: string }) => l.name) };
 }
 
-/** Moves an issue to a state, posting the comment first so it is in place when the label appears.
+/** Moves an issue to a state, posting the comment first so it is in place when the label appears. The comment
+ *  is posted even when moveRefusal keeps a closed issue where it is: it still records what the run did.
  *
  *  Args:
  *    repo: `owner/name`.
@@ -90,7 +118,13 @@ function readIssue(repo: string, issue: string): { state: string; labels: string
 export function setState(repo: string, issue: string, to: State, commentFile?: string): void {
   const path = `repos/${repo}/issues/${issue}`;
   if (commentFile) gh(["api", "--method", "POST", `${path}/comments`, "-F", `body=@${commentFile}`, "--silent"]);
-  const { add, remove } = labelChanges(readIssue(repo, issue).labels, to);
+  const current = readIssue(repo, issue);
+  const refusal = moveRefusal(current, to);
+  if (refusal) {
+    console.error(`not moved to ${label(to)}: ${refusal}`);
+    return;
+  }
+  const { add, remove } = labelChanges(current.labels, to);
   for (const name of add) gh(["api", "--method", "POST", `${path}/labels`, "-f", `labels[]=${name}`, "--silent"]);
   for (const name of remove) gh(["api", "--method", "DELETE", `${path}/labels/${encodeURIComponent(name)}`, "--silent"]);
 }
@@ -138,8 +172,19 @@ function main([command, repo, issue, state, commentFile]: string[]): void {
     setState(repo, issue, state as State, commentFile);
     return;
   }
+  // `done` means the factory's PR merged, not only that the issue closed: a human may close an issue that a
+  // question parked, or close it mid-run, with no factory PR merged.
+  if (command === "done" && repo && issue) {
+    const prs = JSON.parse(
+      gh(["pr", "list", "--repo", repo, "--state", "merged", "--limit", "100", "--json", "url,headRefName,isCrossRepository"]),
+    );
+    const pr = mergedFactoryPr(prs, issue);
+    if (pr) setState(repo, issue, "done");
+    else console.error(`not done: no merged factory pull request for #${issue}`);
+    return;
+  }
   console.error(
-    "usage: queue setup <owner/repo> | stage <state> | claim <owner/repo> <issue> <state> | set <owner/repo> <issue> <state> [comment.md]",
+    "usage: queue setup <owner/repo> | stage <state> | claim <owner/repo> <issue> <state> | set <owner/repo> <issue> <state> [comment.md] | done <owner/repo> <issue>",
   );
   process.exit(2);
 }

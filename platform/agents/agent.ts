@@ -13,6 +13,7 @@ export const TOOLS = ["Bash", "Edit", "Read"] as const;
 
 /** One role's settings and prompt. */
 export type Agent = {
+  description: string;
   model: string;
   tools: (typeof TOOLS)[number][];
   budget_usd: number;
@@ -47,7 +48,8 @@ export function parseAgent(text: string): Agent {
   };
   const positive = (key: string) => {
     const value = Number(required(key));
-    if (!(value > 0)) throw new Error(`${key} must be a positive number`);
+    // Finite too: JSON has no Infinity, so it would reach claude as --max-budget-usd null.
+    if (!Number.isFinite(value) || value <= 0) throw new Error(`${key} must be a positive number`);
     return value;
   };
   // The time limit is a perl alarm(), which takes whole seconds.
@@ -63,6 +65,7 @@ export function parseAgent(text: string): Agent {
   if (!prompt) throw new Error("the prompt after the settings is empty");
 
   return {
+    description: required("description"),
     model: required("model"),
     tools: tools as Agent["tools"],
     budget_usd: positive("budget_usd"),

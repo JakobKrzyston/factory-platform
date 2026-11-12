@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   run:
-    # The labels that queue a role, from STAGES in platform/queue/queue.ts.
+    # The labels that queue a role, copied by hand from STAGES in platform/queue/queue.ts: change both together.
     if: >-
       github.event.action == 'labeled'
       && contains(fromJSON('["factory:ready", "factory:spec", "factory:implement", "factory:review"]'), github.event.label.name)
@@ -129,6 +129,11 @@ jobs:
               sed 's/^/> /' "$RUNNER_TEMP/out"
               echo
               echo "Answer in a comment here, then add \`factory:$STAGE\` again. [Run log]($RUN_URL)"
+              # The reviewer judges the diff against the spec alone, so an answer that changes it needs a new spec.
+              if [[ $ROLE == implement ]]; then
+                echo
+                echo "If your answer changes the spec, add \`factory:spec\` instead, so the spec, and the review against it, follow it."
+              fi
             } > "$comment"
             pnpm exec tsx platform/queue/queue.ts set "$REPO" "$ISSUE" needs-human "$comment"
           else
@@ -171,14 +176,12 @@ jobs:
           if-no-files-found: ignore
 
   # The factory's PR says "Closes #N", so merging it closes the issue as completed. A human may merge before the
-  # review agent has finished, or after it failed, so every state a PR can be open in counts.
+  # review agent has finished, or after it failed, so any factory state counts; `queue done` then moves the
+  # issue to done only if the factory's PR is what merged, not when a human closed it without one.
   done:
     if: >-
       github.event.action == 'closed' && github.event.issue.state_reason == 'completed'
-      && (contains(github.event.issue.labels.*.name, 'factory:in-review')
-        || contains(github.event.issue.labels.*.name, 'factory:review')
-        || contains(github.event.issue.labels.*.name, 'factory:in-progress')
-        || contains(github.event.issue.labels.*.name, 'factory:needs-human'))
+      && contains(join(github.event.issue.labels.*.name, ' '), 'factory:')
     runs-on: ubuntu-latest
     environment: factory
     steps:
@@ -200,7 +203,7 @@ jobs:
           permission-pull-requests: read
       - env:
           GH_TOKEN: ${{ steps.app.outputs.token }}
-        run: pnpm exec tsx platform/queue/queue.ts set "${{ github.repository }}" "${{ github.event.issue.number }}" done
+        run: pnpm exec tsx platform/queue/queue.ts done "${{ github.repository }}" "${{ github.event.issue.number }}"
       # Compares each merged factory PR's head with the commit its run handed off.
       - name: Record rework
         env:

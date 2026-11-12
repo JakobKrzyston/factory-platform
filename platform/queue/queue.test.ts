@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { claimRefusal, labelChanges, STAGES } from "./queue";
+import { claimRefusal, labelChanges, mergedFactoryPr, moveRefusal, STAGES } from "./queue";
 
 test("a transition swaps the old factory label for the new one and keeps other labels", () => {
   assert.deepEqual(labelChanges(["bug", "factory:ready"], "in-progress"), {
@@ -53,4 +53,18 @@ test("the chain runs triage, spec, implement, review and ends with a human", () 
   }
   assert.deepEqual(roles, ["triage", "spec", "implement", "review"]);
   assert.equal(state, "in-review");
+});
+
+test("a run that ends after the issue closed does not move it, but merging still moves it to done", () => {
+  assert.equal(moveRefusal({ state: "open" }, "review"), null);
+  assert.match(moveRefusal({ state: "closed" }, "review") ?? "", /closed/);
+  assert.match(moveRefusal({ state: "closed" }, "needs-human") ?? "", /closed/);
+  assert.equal(moveRefusal({ state: "closed" }, "done"), null);
+});
+
+test("an issue is done only when the factory's own pull request for it merged", () => {
+  const pr = (headRefName: string, isCrossRepository = false) => ({ url: `https://x/${headRefName}`, headRefName, isCrossRepository });
+  assert.equal(mergedFactoryPr([pr("fix-typo"), pr("factory/issue-12-20261111T000000Z")], "1"), null);
+  assert.equal(mergedFactoryPr([pr("factory/issue-1-20261111T000000Z", true)], "1"), null);
+  assert.equal(mergedFactoryPr([pr("factory/issue-1-20261111T000000Z")], "1"), "https://x/factory/issue-1-20261111T000000Z");
 });

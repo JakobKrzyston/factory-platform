@@ -17,6 +17,7 @@ Do the role.
 
 test("an agent file gives its settings and the prompt after the fence", () => {
   assert.deepEqual(parseAgent(VALID), {
+    description: "A role.",
     model: "haiku",
     tools: ["Bash", "Read"],
     budget_usd: 0.5,
@@ -39,12 +40,15 @@ test("an agent without Read is refused", () => {
 
 test("a missing or unknown setting is refused, not defaulted", () => {
   assert.throws(() => parseAgent(VALID.replace("model: haiku\n", "")), /missing setting: model/);
+  assert.throws(() => parseAgent(VALID.replace("description: A role.\n", "")), /missing setting: description/);
   assert.throws(() => parseAgent(VALID.replace("model:", "modle:")), /unknown settings: modle/);
 });
 
 test("a time limit must be whole seconds and a budget positive", () => {
   assert.throws(() => parseAgent(VALID.replace("time_limit_seconds: 300", "time_limit_seconds: 1.5")), /whole number/);
   assert.throws(() => parseAgent(VALID.replace("budget_usd: 0.5", "budget_usd: 0")), /positive/);
+  assert.throws(() => parseAgent(VALID.replace("budget_usd: 0.5", "budget_usd: Infinity")), /positive/);
+  assert.throws(() => parseAgent(VALID.replace("budget_usd: 0.5", "budget_usd: 1e400")), /positive/);
 });
 
 test("a file without settings fences or without a prompt is refused", () => {
