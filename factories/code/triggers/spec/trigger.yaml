@@ -1,0 +1,6 @@
+on: label
+label: factory:spec
+agent: spec
+next: factory:implement
+color: "C2E0C6"
+description: Triaged. Adding this label starts the spec agent.

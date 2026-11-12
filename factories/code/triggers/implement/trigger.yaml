@@ -1,0 +1,6 @@
+on: label
+label: factory:implement
+agent: implement
+next: factory:review
+color: "BFD4F2"
+description: Specified. Adding this label starts the implement agent.

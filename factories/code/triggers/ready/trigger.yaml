@@ -1,0 +1,7 @@
+# The entry trigger: a person adds factory:ready and the foreman, triage, runs. Fields: factories/README.md.
+on: label
+label: factory:ready
+agent: triage
+next: factory:spec
+color: "0E8A16"
+description: Queued for the factory. Adding this label starts the triage agent.
