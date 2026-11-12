@@ -1,6 +1,6 @@
 # benchmark
 
-Eleven past issues from this repository. Each one has the outcome it should have reached and the checks that prove it. A change to a factory's prompts, models or gates is judged by replaying these cases on the old and the new definition (TL-15), and the results are scored by the files under `scorers/` (TL-16). The cases are the factory's own history, so the set grows as the project does.
+Twelve past issues from this repository. Each one has the outcome it should have reached and the checks that prove it. A change to a factory's prompts, models or gates is judged by replaying these cases on the old and the new definition (TL-15), and the results are scored by the files under `scorers/` (TL-16). The cases are the factory's own history, so the set grows as the project does.
 
 ## Cases
 
@@ -8,6 +8,7 @@ Eleven past issues from this repository. Each one has the outcome it should have
 | --- | --- | --- | --- | --- |
 | [52-stage-labels-test](52-stage-labels-test/case.md) | implement | triage, spec, implement, review | #53 | The factory's own end-to-end run: a test-only change with a check that the test bites. It is also the one case where triage must pass the issue on. |
 | [60-merge-gate-lint](60-merge-gate-lint/case.md) | implement | triage, spec, implement, review | #62 | A factory run on a drafted chore: a type-only lint fix whose check fails at the base and refuses a suppressed rule. |
+| [61-plan-matches-roadmap](61-plan-matches-roadmap/case.md) | implement | triage, spec, implement, review | #70 | A factory run that must create a new file, starting from a base where half the issue is done. |
 | [34-process-group-clone](34-process-group-clone/case.md) | spec | spec | #43 | Settling the issue's two open decisions: kill the process group, and choose what to keep once the clone is deleted. |
 | [41-tsx-gate-sandbox](41-tsx-gate-sandbox/case.md) | spec | spec | #44 | Choosing the safe option when the obvious fix opens a hole, and saying which check only a person can run. |
 | [11-run-log-schema](11-run-log-schema/case.md) | spec | spec | #28 | Turning a one-paragraph requirement into a schema, including the columns that "reconstruct a run" needs. |
@@ -18,7 +19,7 @@ Eleven past issues from this repository. Each one has the outcome it should have
 | [4-run-issue-review](4-run-issue-review/case.md) | review | review | #29 | Finding three defects that survived into the merged diff and were filed as #33 and #34. |
 | [5-quality-gates-review](5-quality-gates-review/case.md) | review | review | #40 | Finding that the gate can never pass on this repository (#41). |
 
-Per role: two implementation cases, three spec cases, four triage cases (plus the triage stages of #52 and #60), and two review cases. The history had no second issue that an implement replay could pass, so two small chores were drafted below and filed as #60 and #61. #60 became the second implementation case. #61 did not become a case (see below).
+Per role: three implementation cases, three spec cases, four triage cases (plus the triage stages of #52, #60 and #61), and two review cases. The history had no second issue that an implement replay could pass, so two small chores were drafted below and filed as #60 and #61. Both became implementation cases (see below).
 
 ## Case format
 
@@ -36,7 +37,7 @@ Each case is `benchmark/<issue>-<slug>/case.md`. TL-15's harness reads it, so a 
 
 The body has two sections:
 
-- `## Issue`: the issue's title alone on the first line, then its body verbatim inside a four-backtick `markdown` fence. A replay takes the fence's contents as the body, not the fence itself. Issues get edited, and this is the text the factory would have seen. The fence keeps the body's own headings and code blocks from being read as the case's. None of the eleven issues had been edited, according to GitHub's edit history, so each snapshot is the issue as filed. A replay that starts at `spec` or later gets no triage note or spec comments, because none of these cases has a factory-written one to replay from. Review-only cases (`stages: review`) use the issue body as their spec, and review the reference PR's diff.
+- `## Issue`: the issue's title alone on the first line, then its body verbatim inside a four-backtick `markdown` fence. A replay takes the fence's contents as the body, not the fence itself. Issues get edited, and this is the text the factory would have seen. The fence keeps the body's own headings and code blocks from being read as the case's. None of the twelve issues had been edited, according to GitHub's edit history, so each snapshot is the issue as filed. A replay that starts at `spec` or later gets no triage note or spec comments, because none of these cases has a factory-written one to replay from. Review-only cases (`stages: review`) use the issue body as their spec, and review the reference PR's diff.
 - `## Expected outcome`: in plain words, what each replayed stage should produce, and what counts as a miss. For triage, spec and review, the output is a comment, so this section is what a scorer or a reader judges it against.
 
 ## How the cases were chosen
@@ -69,7 +70,7 @@ Material is thin. Only two issues have ever gone through the factory (#52 and #5
 
 ## Known weaknesses
 
-- **Two implementation cases, both small.** 52-stage-labels-test and 60-merge-gate-lint are the only ones. Each check was confirmed to fail at `base_sha` and pass on the reference. Both are one-file changes, so they say little about a factory's handling of larger work. Every other implementation candidate either branched before #44, when the gate could not run this repository's tests, or needs a deployment or a runner.
+- **Three implementation cases, all small.** 52-stage-labels-test, 60-merge-gate-lint and 61-plan-matches-roadmap are the only ones. Each check was confirmed to fail at `base_sha` and pass on the reference. All three are one-file changes, so they say little about a factory's handling of larger work. Every other implementation candidate either branched before #44, when the gate could not run this repository's tests, or needs a deployment or a runner.
 - **The review cases have no factory-written spec.** The requirement issue stands in for one. They score whether the reviewer finds defects that are known to be in the diff. They cannot score false positives, because nobody listed what was fine.
 - **Every case comes from one owner, over four days, in one repository.** The factory's own future runs are the next source. An issue that goes through the factory and merges, or stops at a question the owner answers, becomes a candidate.
 
@@ -78,7 +79,7 @@ Material is thin. Only two issues have ever gone through the factory (#52 and #5
 The owner filed both, verbatim, as #60 and #61. Both were labelled `factory:ready` on 2026-11-12 and ran on the factory chain on `main`. Each check below failed on `main` when it was drafted.
 
 - **#60** merged as #62 and is the case [60-merge-gate-lint](60-merge-gate-lint/case.md). Its check gained `! grep -q biome-ignore`, because the issue rules out suppressing the rules.
-- **#61** merged as #63 without its test. The implement run could not create files, and the PR says so. `render-plan.ts` gained its `renderPlan()` export, but nothing checks `PLAN.md` yet, so the check below still fails on #63's head. A case needs a reference that passes its check, so #61 is not a case. It can become one when a PR adds the missing test.
+- **#61** first merged as #63 without its test, because the implement agent could not create files (#67). After #68 gave implement a Write tool, #61 was reopened and run again, and #70 added the test. That is the case [61-plan-matches-roadmap](61-plan-matches-roadmap/case.md). Its `base_sha` is #70's merge-base, which already has #63's `renderPlan()` export.
 
 **1. Fix the two lint warnings in `scripts/check-merge-gate.ts` (#60)**
 
