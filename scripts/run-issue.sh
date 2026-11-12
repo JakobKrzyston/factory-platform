@@ -261,6 +261,27 @@ fi
 # the issue's title, and other factory branches hold earlier attempts.
 DENY_READ=("Read(~/**)" "Read(/$KEY_DIR/**)")
 if [[ $ROLE == review ]]; then DENY_READ+=("Read(/$GIT_PARENT/**)"); fi
+# The pnpm and Node installs sit under the denied home directory: on Actions
+# /home/runner/setup-pnpm and the runner's Node, on macOS ~/Library/pnpm. Without
+# a read exception, pnpm is "Operation not permitted" in Bash (#75). Allow only
+# each tool's own install directory, as sandboxSettings does for nodeInstall and
+# srtPackage in platform/gates/checks.ts. Paths outside $HOME are readable already.
+ALLOW_READ=()
+allow_install() { # $1: pnpm or node
+  local bin real dir seen home_real
+  bin=$(command -v "$1") || return 0
+  real=$(realpath "$bin") || return 0
+  if [[ $1 == node ]]; then dir=$(dirname "$(dirname "$real")"); else dir=$(dirname "$real"); fi
+  if [[ $1 == pnpm && -n ${PNPM_HOME:-} ]]; then
+    home_real=$(realpath "$PNPM_HOME" 2>/dev/null) || home_real=
+    if [[ -n $home_real && $real == "$home_real"/* ]]; then dir=$home_real; fi
+  fi
+  [[ $dir == "$HOME"/* ]] || return 0
+  for seen in ${ALLOW_READ[@]+"${ALLOW_READ[@]}"}; do [[ $seen == "$dir" ]] && return 0; done
+  ALLOW_READ+=("$dir")
+}
+allow_install pnpm
+allow_install node
 cat > "$RUN_DIR/settings.json" <<JSON
 {
   "apiKeyHelper": "cat $KEY_DIR/key",
@@ -270,7 +291,8 @@ cat > "$RUN_DIR/settings.json" <<JSON
     "enabled": true,
     "failIfUnavailable": true,
     "autoAllowBashIfSandboxed": true,
-    "allowUnsandboxedCommands": false
+    "allowUnsandboxedCommands": false,
+    "filesystem": { "allowRead": $(jq -cn '$ARGS.positional' --args ${ALLOW_READ[@]+"${ALLOW_READ[@]}"}) }
   },
   "hooks": $HOOKS
 }
