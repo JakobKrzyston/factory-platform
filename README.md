@@ -42,6 +42,14 @@ pnpm dashboard               # writes .runlog/dashboard.html from the run log
 
 Cost per PR, time per stage, gate pass rates and rework rate, per factory and per week. What each number means is in [`platform/dashboard/README.md`](platform/dashboard/README.md).
 
+## Benchmark a factory version
+
+```sh
+pnpm bench <factory> <git-ref> [--case <id>] [--max-usd <n>]
+```
+
+Replays every case under `benchmark/` through `factories/<factory>/` as it was at `<git-ref>`, in a clone of its own, and prints each stage's outcome, checks, cost and wall time. A replay reads nothing from GitHub and writes nothing to it, and its rows in the run log are marked `benchmark`, so the dashboard leaves them out. `--max-usd` (default 10) stops starting runs once the benchmark has spent that much. See [`platform/bench/README.md`](platform/bench/README.md).
+
 ## Turn review comments into rules
 
 `pnpm standards collect` appends every new human review comment from the last week's merged PRs to `standards/draft.md`. Promote each entry to `standards/rules.md` or reject it in `standards/rejected.md`. The review agent gets those rules in its prompt and cites them by ID. Its Stop hook, and then the script, refuse a review whose findings cite nothing. See [`standards/README.md`](standards/README.md).

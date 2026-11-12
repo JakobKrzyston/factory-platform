@@ -10,7 +10,7 @@ pnpm test             # applies the migration to a throwaway SQLite file and exe
 `runlog.ts` writes the rows. `scripts/run-issue.sh` and `.github/workflows/factory.yml` call it; it applies any pending migration before it writes, so a fresh database needs no separate step. Readers such as the dashboard (`platform/dashboard/`) open it read-only, which skips migrations.
 
 ```sh
-tsx platform/runlog/runlog.ts start <id> <factory> <role> <factory_sha> <model> <owner/repo> <issue>
+tsx platform/runlog/runlog.ts start <id> <factory> <role> <factory_sha> <model> <owner/repo> <issue> [benchmark]
 tsx platform/runlog/runlog.ts finish <id> <done|needs_human|failed> [run-dir]
 tsx platform/runlog/runlog.ts rework <owner/repo> <issue>
 ```
@@ -31,7 +31,7 @@ Then `DATABASE_URL=postgresql://runlog_writer:<password>@<host>/runlog?sslmode=r
 
 ## Lifecycle of a row
 
-1. **Start.** `run-issue.sh` inserts the row before it does anything that can fail (clone, key file, agent), with `status = 'running'` and the identity columns. `model` is the model the script asked for, such as `sonnet`, until the run ends.
+1. **Start.** `run-issue.sh` inserts the row before it does anything that can fail (clone, key file, agent), with `status = 'running'` and the identity columns, and `benchmark` true when it is a replay (`pnpm bench`, TL-15). `model` is the model the script asked for, such as `sonnet`, until the run ends.
 2. **End.** The script's `EXIT` trap ends the row on every exit, in one update: `done` when it opened a PR, `needs_human` when the agent asked a question, `failed` otherwise. The measurements come from the run directory: tokens, cost and the resolved model ID from `transcript.jsonl`; `checks_passed`, `pr` and `head_sha` from `run.json`.
 3. **Fallback.** On Actions, the workflow's last step ends the row as `failed` if it is still `running`: the script was killed, cancelled or timed out before its trap ran. It passes the run's directory, so the row still gets the tokens the transcript recorded. `finish` leaves a row that has already ended alone, and reports only an update that ended the row, so this step is safe to run every time.
 4. **Rework.** When the issue closes as completed, the workflow's `done` job runs `rework`: for each merged PR of the issue's runs, `rework` is true if the PR's head at merge is not the `head_sha` the last run on it handed off. A PR whose runs recorded no `head_sha` keeps `rework` null, since there is nothing to compare.

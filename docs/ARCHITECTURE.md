@@ -139,6 +139,20 @@ The benchmark is closed issues from this repository with their merged PRs and a 
 
 Tested by: TL-14 to TL-16, then every meta-PR (TL-23).
 
+### A replay runs a factory version in its own clone and publishes nothing (TL-15)
+
+`pnpm bench <factory> <git-ref>` (`platform/bench/`) clones this repository into a temporary directory, detaches it at the ref, installs that version's dependencies, and runs that version's own `scripts/run-issue.sh` with `FACTORY=<factory>`. An old ref and a new ref each run their own script, definitions and gates, which is what lets TL-17 bench the layout before and after its move. A ref whose `run-issue.sh` has no replay mode is refused: it would fetch the live issue and publish a PR. The clone's `.runlog` is a link to this checkout's, so run directories and SQLite rows outlive the clone. That is why `.gitignore` says `.runlog` without a trailing slash: a link is not a directory, and an untracked one would mark the clone dirty and change `factory_sha`.
+
+The replay is a mode of `run-issue.sh`, not a second script, so a replay runs the production code path up to the point where it would publish. With `REPLAY` set to a JSON file the harness writes, the script clones the local repository at the case's `base_sha` instead of GitHub's default branch, takes the issue from the case's snapshot and the comments from the file, and stops before every GitHub write: implement prints the path of its `changes.patch` instead of pushing and opening a PR, and review prints the path of its `review.md` instead of commenting. Triage and spec never wrote to GitHub; the workflow posts their output. The harness chains a case's `stages` as the queue would, through local files instead of GitHub: the triage note and the spec become comments for the next stage, and the implement run's patch, committed onto the base, is the PR the reviewer reviews. A stage that does not end `done` ends its case. A review with no implement stage before it reviews the case's merged PR instead: `base_sha` to the PR's head, the second parent of its merge commit, found in the local repository. With no spec stage before it, the issue is its spec. That lets a case score the reviewer against known defects in a diff that really merged, which a freshly implemented diff does not have.
+
+The row is written by the script, as for every run, with `benchmark` true (`runlog.ts start ... benchmark`). The dashboard already reads only `benchmark = false`. No migration: the column has existed since TL-11.
+
+Spending: each run is still capped by its role's `budget_usd`. `--max-usd` (default 10) stops starting runs once the runs so far cost that much, so a benchmark overshoots it by at most one run's budget. `--case` runs one case.
+
+Not yet: scorers (TL-16) and the cases themselves (TL-14). Cases replay against this repository only, since the clone source is the local repository. A run is sequential and takes as long as its agents; parallel replays would need one clone per case, which the design allows.
+
+Tested by: TL-15 (`docs/notes/15-replay-harness.md`).
+
 ### Factories are directories (TL-17)
 
 Following Warp's layout: a resource's name is its path, exactly one agent per factory is the foreman, skills at the factory root apply to every agent and skills under an agent apply to that agent only. Creating a factory is copying a directory; splitting one is moving agent folders. A validator (TL-20) runs in CI.

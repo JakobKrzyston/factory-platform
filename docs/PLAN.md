@@ -219,7 +219,7 @@ Ten to twenty closed issues with their merged PRs, each with a written expected 
 
 ### TL-15: Replay harness
 
-infrastructure · measurement · 2027-Q1
+infrastructure · measurement · 2027-Q1 · in_progress
 
 A command that runs the benchmark through a named factory version in isolated checkouts and writes the results to the run log tagged as a benchmark run.
 

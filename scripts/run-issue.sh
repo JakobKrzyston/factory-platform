@@ -18,7 +18,15 @@
 # to let it finish while the repository's typecheck, lint or test script fails. Each
 # run is recorded under .runlog/runs/<run-id>/ and as a row in the run log
 # (platform/runlog/): Postgres when DATABASE_URL is set, otherwise SQLite in .runlog/.
-# Set RUN_LOG_ID to choose the row's id.
+# Set RUN_LOG_ID to choose the row's id, and FACTORY to run a factory other than code.
+#
+# Set REPLAY to a JSON file to replay a benchmark case instead (TL-15; platform/bench/
+# writes it): the clone is fetched from the local repository `source` at `base_sha`,
+# with no later commits; the issue (`title`, `body`) and its `comments` come from the file, and a
+# review reviews `patch`, an implement run's changes.patch, committed onto the base. A
+# replay reads nothing from GitHub and writes nothing to it: implement prints the path
+# of its changes.patch and review the path of its review.md instead of publishing them,
+# and the run's row is marked benchmark.
 #
 # Exit status: 0 with the role's output on stdout; 3 with the agent's question on
 # stdout when it stopped to ask one; 4, from implement only, when the PR opened
@@ -27,7 +35,8 @@
 # problem per line after it; anything else means the role failed.
 set -euo pipefail
 
-FACTORY=code
+FACTORY=${FACTORY:-code}
+REPLAY=${REPLAY:-}
 PERMISSION_MODE=dontAsk
 # The first line of the spec comment; the review role finds the spec by it.
 SPEC_MARKER='<!-- factory:spec -->'
@@ -73,7 +82,7 @@ AGENT_FILE=$ROOT/factories/$FACTORY/agents/$ROLE/agent.md
 AGENT=$(cd "$ROOT" && node_modules/.bin/tsx platform/agents/agent.ts "$AGENT_FILE") || AGENT=null
 MODEL=$(jq -r '.model // "unknown"' <<<"$AGENT")
 # Before anything else that can fail, so every run that gets this far has a row.
-runlog start "$RUN_LOG_ID" "$FACTORY" "$ROLE" "$FACTORY_SHA" "$MODEL" "$REPO" "$NUMBER"
+runlog start "$RUN_LOG_ID" "$FACTORY" "$ROLE" "$FACTORY_SHA" "$MODEL" "$REPO" "$NUMBER" ${REPLAY:+benchmark}
 
 # Claude Code reads the key through apiKeyHelper from a file the agent is
 # denied, so the key never enters the agent's environment.
@@ -144,9 +153,19 @@ repo_git() { git -C "$WORKDIR" --git-dir="$GIT_DIR_OUTSIDE" --work-tree="$WORKDI
 BRANCH=factory/issue-$NUMBER-$STAMP
 mkdir -p "$RUN_DIR"
 
-gh repo clone "$REPO" "$WORKDIR" -- --quiet --separate-git-dir "$GIT_DIR_OUTSIDE"
-BASE=$(repo_git symbolic-ref --short HEAD)
-ISSUE=$(gh issue view "$ISSUE_URL" --json title,body)
+# A replay fetches only the base and its history: the repository's later commits
+# hold the PR that closed the issue, which the agent could read with git.
+if [[ -n $REPLAY ]]; then
+  git init --quiet --separate-git-dir "$GIT_DIR_OUTSIDE" "$WORKDIR"
+  repo_git fetch --quiet "$(jq -r .source "$REPLAY")" "$(jq -r .base_sha "$REPLAY")"
+  repo_git switch --quiet --detach FETCH_HEAD
+  BASE=$(jq -r .base "$REPLAY")
+  ISSUE=$(jq '{title, body}' "$REPLAY")
+else
+  gh repo clone "$REPO" "$WORKDIR" -- --quiet --separate-git-dir "$GIT_DIR_OUTSIDE"
+  BASE=$(repo_git symbolic-ref --short HEAD)
+  ISSUE=$(gh issue view "$ISSUE_URL" --json title,body)
+fi
 TITLE=$(jq -r .title <<<"$ISSUE")
 # The body is untrusted whoever wrote it; the confinement below is what makes that safe.
 BODY=$(jq -r .body <<<"$ISSUE")
@@ -154,14 +173,23 @@ BODY=$(jq -r .body <<<"$ISSUE")
 # human answers the agent's question, and from the factory's own App
 # (FACTORY_BOT, e.g. my-app[bot]), which posted the question, the triage note
 # and the spec. Nobody else's.
-TRUSTED_COMMENTS=$(gh api --paginate "repos/$REPO/issues/$NUMBER/comments" --jq '.[]' \
-  | jq -s --arg bot "${FACTORY_BOT:-}" '[.[]
-      | select((.author_association | IN("OWNER", "MEMBER", "COLLABORATOR")) or .user.login == $bot)]')
+# A replay's comments are the earlier stages' output, so all of them are trusted.
+if [[ -n $REPLAY ]]; then
+  TRUSTED_COMMENTS=$(jq .comments "$REPLAY")
+else
+  TRUSTED_COMMENTS=$(gh api --paginate "repos/$REPO/issues/$NUMBER/comments" --jq '.[]' \
+    | jq -s --arg bot "${FACTORY_BOT:-}" '[.[]
+        | select((.author_association | IN("OWNER", "MEMBER", "COLLABORATOR")) or .user.login == $bot)]')
+fi
 COMMENTS=$(jq -r 'map("\(.user.login) commented:\n\n\(.body)") | join("\n\n---\n\n")' <<<"$TRUSTED_COMMENTS")
 
 # The reviewer reviews the newest open PR the implement role opened for this
-# issue, at the commit listed here, against the latest spec.
-if [[ $ROLE == review ]]; then
+# issue, at the commit listed here, against the latest spec. A replay's PR is its
+# patch, committed below.
+if [[ $ROLE == review && -n $REPLAY ]]; then
+  PR_URL=
+  PR_BASE=$BASE
+elif [[ $ROLE == review ]]; then
   PR=$(gh pr list --repo "$REPO" --state open --limit 100 \
       --json url,headRefName,headRefOid,baseRefName,createdAt,isCrossRepository \
     | jq -c --arg prefix "factory/issue-$NUMBER-" '[.[] | select((.isCrossRepository | not)
@@ -173,6 +201,8 @@ if [[ $ROLE == review ]]; then
   PR_URL=$(jq -r .url <<<"$PR")
   PR_HEAD=$(jq -r .headRefOid <<<"$PR")
   PR_BASE=$(jq -r .baseRefName <<<"$PR")
+fi
+if [[ $ROLE == review ]]; then
   SPEC=$(jq -r --arg marker "$SPEC_MARKER" \
     '[.[] | select(.body | startswith($marker))] | last | .body // ""' <<<"$TRUSTED_COMMENTS")
   if [[ -z $SPEC ]]; then
@@ -193,7 +223,12 @@ if [[ -f $WORKDIR/pnpm-lock.yaml ]]; then
 fi
 # Only after installing: the PR's head is agent-written, and pnpm runs a
 # .pnpmfile.cjs it finds even with --ignore-scripts, outside any sandbox.
-if [[ $ROLE == review ]]; then
+if [[ $ROLE == review && -n $REPLAY ]]; then
+  repo_git apply --index "$(jq -r .patch "$REPLAY")"
+  repo_git -c user.name=bench -c user.email=bench@localhost commit --quiet -m "Replay of #$NUMBER"
+  PR_HEAD=$(repo_git rev-parse HEAD)
+  DIFF=$(repo_git diff HEAD~1 HEAD)
+elif [[ $ROLE == review ]]; then
   # Fetched by commit: a push to the PR after the clone leaves the listed head out of it.
   repo_git fetch --quiet origin "$PR_HEAD"
   repo_git switch --quiet --detach "$PR_HEAD"
@@ -392,6 +427,11 @@ if [[ $ROLE == review ]]; then
   jq --arg pr "$PR_URL" --arg reviewed_sha "$PR_HEAD" --arg findings "$FINDINGS" \
     '. + {pr: $pr, reviewed_sha: $reviewed_sha, review_findings: ($findings | if . == "" then null else tonumber end)}' \
     "$RUN_DIR/run.json" > "$RUN_DIR/run.json.tmp" && mv "$RUN_DIR/run.json.tmp" "$RUN_DIR/run.json"
+  if [[ -n $REPLAY ]]; then
+    OUTCOME=done
+    echo "$RUN_DIR/review.md"
+    exit 0
+  fi
   REVIEW_BODY="$SUMMARY
 
 ---
@@ -408,6 +448,17 @@ fi
 if [[ $(jq -r '.checks_passed' "$RUN_DIR/run.json") != true || $CHANGED -eq 0 || $WORKFLOWS_CHANGED -ne 0 ]]; then
   echo "run $RUN_ID: no pull request (agent exit $STATUS, result $(jq -r '.result_subtype' "$RUN_DIR/run.json"), checks passed $(jq -r '.checks_passed' "$RUN_DIR/run.json"), $CHANGED files changed, $WORKFLOWS_CHANGED under .github); see $RUN_DIR" >&2
   exit 1
+fi
+
+# A replay stops here, with the outcome the run would have had, and publishes nothing.
+if [[ -n $REPLAY ]]; then
+  echo "$RUN_DIR/changes.patch"
+  if [[ -n $(jq -r '.description_problems[]' "$RUN_DIR/run.json") ]]; then
+    OUTCOME=needs_human
+    exit 4
+  fi
+  OUTCOME=done
+  exit 0
 fi
 
 # Built before the push, so a failure here cannot leave a branch without a PR.

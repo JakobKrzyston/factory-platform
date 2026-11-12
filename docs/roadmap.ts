@@ -290,6 +290,7 @@ export const OUTCOMES: Outcome[] = [
       {
         key: "TL-15",
         title: "Replay harness",
+        status: "in_progress",
         description:
           "A command that runs the benchmark through a named factory version in isolated checkouts and writes the results to the run log tagged as a benchmark run.",
         workType: "infrastructure",
