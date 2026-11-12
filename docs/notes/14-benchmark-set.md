@@ -49,3 +49,25 @@ The same review corrected several smaller claims and loosened four expectations 
 The implementation row is the weak spot. 52-stage-labels-test's check exits 1 at `e69b9b5` and 0 at the reference merge `948f2a6`. It renames a label in the workflow and requires the tests to fail, so a green suite without the new test does not pass. 34-process-group-clone's old check exited 0 on both its commits, which was the first sign that it was a weak implementation case. Every `base_sha`, `pr` and `files` value was checked against GitHub and `git merge-base`, by a throwaway script that is not committed. The harness that reads the cases belongs to TL-15.
 
 The cost of replaying the set is not known yet. #52's implement and review stages cost $0.09 together, and that is the only measured figure. TL-15's first run will give the rest.
+
+## Follow-up: the second implementation case
+
+**Expected.** Both drafted chores would run through the factory and merge, and each would become an implementation case with the check drafted for it.
+
+**Happened.** Both ran through all four stages on 2026-11-12 and merged, as #62 and #63. Only #62 became a case.
+
+- **60-merge-gate-lint (#62).** The check fails at `base_sha` (`5d7abe9`) on the two lint warnings and passes on #62's head. It now also refuses a `biome-ignore` in the file, since that is the obvious way to pass lint without doing the fix. Disabling the rules in `biome.json` is left to the case's `files`. The issue snapshot matches GitHub byte for byte, and GitHub shows no edits.
+- **#61 (#63) is not a case.** The implement run said in its PR that it could not create files, so `platform/plan/plan.test.ts` was never written. The PR still merged and closed #61. The drafted check exits 1 on #63's head, so #63 is not a reference solution. #61 becomes a case only once a PR adds the missing test.
+
+Both runs reported environment trouble. In #60's run, implement ran tool binaries directly because `pnpm` was not on its path. In #61's, triage could not run commands and implement's Bash writes were denied. Both reviews said the clone's `.git` was invalid. Those are factory problems, not case problems, and the case does not depend on them.
+
+**What the numbers said.**
+
+| | |
+| --- | --- |
+| Cases | 11: 2 implement, 3 spec, 4 triage, 2 review |
+| Made by the factory | 3 (#52, #55, #60) |
+| Implementation checks that fail at `base_sha` and pass on the reference | 2 of 2 |
+| Drafted chores that became cases | 1 of 2 |
+
+#62's implement stage cost $0.06 and its review $0.04, close to #52's $0.09 for the same two stages.
