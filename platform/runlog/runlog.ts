@@ -23,12 +23,13 @@ export type RunLog = {
   close(): Promise<void>;
 };
 
-/** Opens the run log, applying any pending migrations first.
- *  Args: url: a Postgres connection string, or empty for SQLite; path: the SQLite file.
+/** Opens the run log, applying any pending migrations first unless it is opened read-only.
+ *  Args: url: a Postgres connection string, or empty for SQLite; path: the SQLite file; readOnly: skip migrations,
+ *  so a reader never changes the schema, and open SQLite read-only, so a missing file is an error.
  *  Returns: the open run log. */
-export async function openRunLog(url = process.env.DATABASE_URL, path = DEFAULT_SQLITE_PATH): Promise<RunLog> {
+export async function openRunLog(url = process.env.DATABASE_URL, path = DEFAULT_SQLITE_PATH, readOnly = false): Promise<RunLog> {
   if (url) {
-    await migratePostgres(url);
+    if (!readOnly) await migratePostgres(url);
     const sql = postgres(url, { max: 1, onnotice: () => {} });
     return {
       query: async (text, params = []) => {
@@ -38,8 +39,8 @@ export async function openRunLog(url = process.env.DATABASE_URL, path = DEFAULT_
       close: () => sql.end(),
     };
   }
-  migrateSqlite(path);
-  const db = new DatabaseSync(path);
+  if (!readOnly) migrateSqlite(path);
+  const db = new DatabaseSync(path, { readOnly });
   return {
     // node:sqlite binds no booleans; SQLite stores them as 1 and 0 anyway.
     query: async (text, params = []) => db.prepare(text).all(...params.map((p) => (typeof p === "boolean" ? Number(p) : p))),

@@ -9,7 +9,7 @@ It is also the factory's own first customer. Every requirement below is a ticket
 ## What is here
 
 ```
-platform/      shared by every factory: the work queue, run log, gate runner, replay harness, health checks and MCP gateway
+platform/      shared by every factory: the work queue, run log, dashboard, gate runner, replay harness, health checks and MCP gateway
 factories/     one directory per factory; copy one to create a factory, move folders to split one
   code/        the first factory: agents/, triggers/, scorers/, skills/
 benchmark/     past issues with expected outcomes, replayed to judge any factory change
@@ -33,6 +33,14 @@ Needs macOS, Node 22, `claude`, `gh` (logged in), `git`, `jq` and `perl`. The ag
 ## Queue an issue
 
 Add the `factory:ready` label to an issue in this repository. `.github/workflows/factory.yml` runs the same script on a GitHub Actions runner and reports back on the issue through its `factory:*` label: `in-progress`, then `in-review` with a draft PR, or `needs-human` with a comment. The comment either asks a question or lists what the PR's description is missing. Answer the question in a comment and add `factory:ready` again. For an incomplete description, fill it in on the PR, then merge it or replace the label with `factory:in-review`. Setup, once per repository: `pnpm queue setup <owner/repo>` and four secrets, described in [`platform/queue/README.md`](platform/queue/README.md).
+
+## See what the runs cost
+
+```sh
+pnpm dashboard               # writes .runlog/dashboard.html from the run log
+```
+
+Cost per PR, time per stage, gate pass rates and rework rate, per factory and per week. What each number means is in [`platform/dashboard/README.md`](platform/dashboard/README.md).
 
 ## The five parts of a factory
 
