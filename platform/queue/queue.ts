@@ -18,7 +18,7 @@ export const STATES = {
   review: { color: "D4C5F9", description: "A pull request is open. Adding this label starts the review agent." },
   "in-progress": { color: "FBCA04", description: "A factory agent is working on this issue." },
   "in-review": { color: "1D76DB", description: "The review agent has commented on the factory's pull request; a human reviews and merges it." },
-  "needs-human": { color: "D93F0B", description: "The factory stopped with a question or a failure; see its comment." },
+  "needs-human": { color: "D93F0B", description: "The factory stopped with a question, a failure or an incomplete PR; see its comment." },
   done: { color: "5319E7", description: "The factory's pull request merged." },
 } as const;
 

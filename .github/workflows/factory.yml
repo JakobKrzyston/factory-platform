@@ -136,13 +136,24 @@ jobs:
               fi
             } > "$comment"
             pnpm exec tsx platform/queue/queue.ts set "$REPO" "$ISSUE" needs-human "$comment"
+          elif [[ $code -eq 4 ]]; then
+            # TL-8, implement only: a pull request that does not state its risk and evidence is not ready for
+            # review, so it stops here instead of starting the review agent.
+            {
+              echo "The implement agent opened $(head -n 1 "$RUNNER_TEMP/out"), but its description is not ready for review:"
+              echo
+              tail -n +2 "$RUNNER_TEMP/out" | sed 's/^/- /'
+              echo
+              echo "Fill in the missing sections on the pull request, then add \`factory:review\` to start the review agent, or merge it. Or close the pull request and add \`factory:implement\` to run again. [Run log]($RUN_URL)"
+            } > "$comment"
+            pnpm exec tsx platform/queue/queue.ts set "$REPO" "$ISSUE" needs-human "$comment"
           else
             echo "The factory's $ROLE agent failed (exit $code). See the [run log]($RUN_URL), then add \`factory:$STAGE\` to try this step again." > "$comment"
             pnpm exec tsx platform/queue/queue.ts set "$REPO" "$ISSUE" needs-human "$comment"
           fi
           echo "reported=true" >> "$GITHUB_OUTPUT"
-          # A question is a state, not a failure; anything else turns the Actions run red.
-          [[ $code -eq 0 || $code -eq 3 ]]
+          # A question or an incomplete description is a state, not a failure; anything else turns the Actions run red.
+          [[ $code -eq 0 || $code -eq 3 || $code -eq 4 ]]
 
       # A run that times out, is cancelled or breaks before reporting must not stay in-progress,
       # and a claim that failed partway may have left the labels half changed.
@@ -176,8 +187,9 @@ jobs:
           if-no-files-found: ignore
 
   # The factory's PR says "Closes #N", so merging it closes the issue as completed. A human may merge before the
-  # review agent has finished, or after it failed, so any factory state counts; `queue done` then moves the
-  # issue to done only if the factory's PR is what merged, not when a human closed it without one.
+  # review agent has finished, after it failed, or once they have filled in a description TL-8 found incomplete
+  # (needs-human), so any factory state counts; `queue done` then moves the issue to done only if the factory's
+  # PR is what merged, not when a human closed it without one.
   done:
     if: >-
       github.event.action == 'closed' && github.event.issue.state_reason == 'completed'

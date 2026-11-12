@@ -32,6 +32,12 @@ jobs:
   # Not a required check: it installs packages from apt on every run.
   gate:
     runs-on: ubuntu-latest
+    env:
+      # Claude Code's Stop hook input, with a final message that passes the description check (TL-8), so these
+      # steps test only the sandboxed checks.
+      STOP_INPUT: >-
+        {"hook_event_name": "Stop", "last_assistant_message":
+        "## Risk\n\nTwo-way door. Blast radius: CI only.\n\n## Evidence\n\nThe gate job."}
     steps:
       - uses: actions/checkout@v5
         with:
@@ -61,7 +67,7 @@ jobs:
           jq -n --arg checkout "$clone" --arg run "$run" --arg home "$HOME" \
             '{checkout: $checkout, package_json: "\($run)/base-package.json", log: "\($run)/gates.jsonl", deny_read: [$home]}' \
             > "$run/gate.json"
-          echo '{}' | env -i PATH="$PATH" HOME="$HOME" node_modules/.bin/tsx platform/gates/stop-hook.ts "$run/gate.json"
+          echo "$STOP_INPUT" | env -i PATH="$PATH" HOME="$HOME" node_modules/.bin/tsx platform/gates/stop-hook.ts "$run/gate.json"
           cat "$run/gates.jsonl"
       # Each probe first reaches its target outside the sandbox, so a probe that fails inside it shows the sandbox
       # at work, not a missing target.
@@ -81,5 +87,5 @@ jobs:
           jq -n --arg checkout "$clone" --arg run "$run" --arg home "$HOME" --arg key "$key" \
             '{checkout: $checkout, package_json: "\($run)/base-package.json", log: "\($run)/gates.jsonl", deny_read: [$home, $key]}' \
             > "$run/gate.json"
-          echo '{}' | env -i PATH="$PATH" HOME="$HOME" node_modules/.bin/tsx platform/gates/stop-hook.ts "$run/gate.json"
+          echo "$STOP_INPUT" | env -i PATH="$PATH" HOME="$HOME" node_modules/.bin/tsx platform/gates/stop-hook.ts "$run/gate.json"
           cat "$run/gates.jsonl"

@@ -7,7 +7,7 @@ pnpm runlog:migrate   # SQLite in .runlog/, or Postgres when DATABASE_URL is set
 pnpm test             # applies the migration to a throwaway SQLite file and exercises the table and the writer
 ```
 
-`runlog.ts` writes the rows. `scripts/run-issue.sh` and `.github/workflows/factory.yml` call it; it applies any pending migration before it writes, so a fresh database needs no separate step.
+`runlog.ts` writes the rows. `scripts/run-issue.sh` and `.github/workflows/factory.yml` call it; it applies any pending migration before it writes, so a fresh database needs no separate step. Readers such as the dashboard (`platform/dashboard/`) open it read-only, which skips migrations.
 
 ```sh
 tsx platform/runlog/runlog.ts start <id> <factory> <role> <factory_sha> <model> <owner/repo> <issue>

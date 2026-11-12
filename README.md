@@ -9,7 +9,7 @@ It is also the factory's own first customer. Every requirement below is a ticket
 ## What is here
 
 ```
-platform/      shared by every factory: the work queue, run log, gate runner, replay harness, health checks and MCP gateway
+platform/      shared by every factory: the work queue, run log, dashboard, gate runner, replay harness, health checks and MCP gateway
 factories/     one directory per factory; copy one to create a factory, move folders to split one
   code/        the first factory: agents/, triggers/, scorers/, skills/
 benchmark/     past issues with expected outcomes, replayed to judge any factory change
@@ -28,11 +28,19 @@ cp .env.example .env.local   # set ANTHROPIC_API_KEY
 scripts/run-issue.sh <triage|spec|implement|review> https://github.com/<owner>/<repo>/issues/<n>
 ```
 
-Needs macOS, Node 22, `claude`, `gh` (logged in), `git`, `jq` and `perl`. The role's model, tools, budget and prompt come from `factories/code/agents/<role>/agent.md`. The agent works in a temporary clone with no network and no access outside it. Triage and spec print their note or spec; review posts its findings on the issue's open factory PR, having seen only the spec and the diff. For implement, a stop hook keeps the agent working while the repository's `typecheck`, `lint` or `test` script fails, and the script opens a draft PR only when those checks passed. Every run is recorded in `.runlog/runs/` and as a row in the run log (`.runlog/runlog.db`, or Postgres when `DATABASE_URL` is set). [factory-sample](https://github.com/JakobKrzyston/factory-sample) is the practice repository.
+Needs macOS, Node 22, `claude`, `gh` (logged in), `git`, `jq` and `perl`. The role's model, tools, budget and prompt come from `factories/code/agents/<role>/agent.md`. The agent works in a temporary clone with no network and no access outside it. Triage and spec print their note or spec; review posts its findings on the issue's open factory PR, having seen only the spec and the diff. For implement, a stop hook keeps the agent working while the repository's `typecheck`, `lint` or `test` script fails, or while its final message, which becomes the PR description, lacks the template's Risk or Evidence. The script opens a draft PR only when those checks passed. If the hook gave up refusing an incomplete description, the PR still opens and the script exits 4 with the PR's URL and what is missing. Every run is recorded in `.runlog/runs/` and as a row in the run log (`.runlog/runlog.db`, or Postgres when `DATABASE_URL` is set). [factory-sample](https://github.com/JakobKrzyston/factory-sample) is the practice repository.
 
 ## Queue an issue
 
-Add the `factory:ready` label to an issue in this repository. `.github/workflows/factory.yml` runs the same script on GitHub Actions runners, once per role, and each role that succeeds adds the label that starts the next: `factory:ready` (triage), `factory:spec`, `factory:implement`, `factory:review`, then `in-review` with a draft PR and the reviewer's findings on it. A role that stops with a question moves the issue to `needs-human` with a comment. Answer in a comment and add that role's label again. Setup, once per repository: `pnpm queue setup <owner/repo>` and four secrets, described in [`platform/queue/README.md`](platform/queue/README.md).
+Add the `factory:ready` label to an issue in this repository. `.github/workflows/factory.yml` runs the same script on GitHub Actions runners, once per role, and each role that succeeds adds the label that starts the next: `factory:ready` (triage), `factory:spec`, `factory:implement`, `factory:review`, then `in-review` with a draft PR and the reviewer's findings on it. A role that stops with a question moves the issue to `needs-human` with a comment. Answer in a comment and add that role's label again. A PR whose description is incomplete also stops at `needs-human`, before the reviewer runs: fill it in on the PR, then add `factory:review`, or merge it. Setup, once per repository: `pnpm queue setup <owner/repo>` and four secrets, described in [`platform/queue/README.md`](platform/queue/README.md).
+
+## See what the runs cost
+
+```sh
+pnpm dashboard               # writes .runlog/dashboard.html from the run log
+```
+
+Cost per PR, time per stage, gate pass rates and rework rate, per factory and per week. What each number means is in [`platform/dashboard/README.md`](platform/dashboard/README.md).
 
 ## The five parts of a factory
 

@@ -72,12 +72,22 @@ The four roles are triage (Haiku), spec, implement and review (Sonnet). The queu
 `run-issue.sh <role>` keeps one confinement for every role and adds what differs, which is the platform's contract rather than the definition's:
 
 - **Inputs.** Triage, spec and implement get the issue and its trusted comments, the spec included.
-- **The gate.** Only implement hands in changes, so only implement gets the stop hook.
+- **The gate.** Only implement hands in changes, so only implement gets the stop hook, which since TL-8 also checks the PR description. `run-issue.sh` appends the pr-description skill and the PR template to implement's prompt, because that check enforces them; a definition cannot drop them.
 - **The reviewer's isolation.** It gets a fresh clone, detached at the head commit of the issue's newest open factory PR from this repository. It is also denied the clone's git metadata, which holds the commit message, and with it the issue's title, as well as earlier attempts on other branches. Its prompt holds only the latest App-or-maintainer comment headed `<!-- factory:spec -->` and `git diff base...head`: no issue, no other comments, no PR description, and no transcript, which lives on another runner. It checks out the PR's head only after installing the base branch's dependencies, because pnpm runs a `.pnpmfile.cjs` from an agent-written branch even with `--ignore-scripts`, outside any sandbox. Its review is posted as a comment, never a review, so the factory still cannot approve (TL-10). The run log counts its `## Findings` bullets as `review_findings`. A `QUESTION:` from it is posted as its review, since nobody could answer it.
 
-Not yet: role-specific skills and MCP servers. Every run still uses `--setting-sources ""` and `--strict-mcp-config`, so no role loads either. The chain and the role contracts live in `platform/`, so a second factory with different roles needs TL-17's triggers. A blocking finding does not send the PR back to implement; a human reads it.
+Not yet: skills a definition chooses, and MCP servers. Every run still uses `--setting-sources ""` and `--strict-mcp-config`, so no role loads either. The chain and the role contracts live in `platform/`, so a second factory with different roles needs TL-17's triggers. A blocking finding does not send the PR back to implement; a human reads it.
 
 Tested by: TL-7 (`docs/notes/07-role-agents.md`), then the benchmark in TL-15.
+
+### A pull request states its risk and evidence, or a person sees it first (TL-8)
+
+The repository's one pull request template, `.github/pull_request_template.md`, is also the factory's: What was built, How to try it, Risk (one-way or two-way door, blast radius) and Evidence. Its hints are HTML comments, so an unfilled section reads as empty. The guidance is a shared skill, `factories/code/skills/pr-description/SKILL.md`, with one part for the implementer and one for the reviewer. `run-issue.sh` puts the skill and the template in the implement role's system prompt, and the agent's final message becomes the description. TL-7's review agent does not run the reviewer part: it sees only the spec and the diff, never the description, so that the author's account of the change cannot steer the review. A person still checks the description's claims against the diff.
+
+The gate is the stop hook. Claude Code gives it the agent's final message, and `platform/gates/pr-description.ts` checks that message: a Risk section naming the door and the blast radius, and an Evidence section that is not empty. While either fails, the hook refuses the stop, the same way it refuses a failing check, and tells the agent to write the whole description again. Putting the check here matters because a refused stop changes the final message. After fixing a lint failure, an agent tends to end with "Fixed the lint error", and only that message becomes `.result`. A check that ran after the agent finished would send a good PR to a person; the hook makes the agent rewrite its description first. Each line of `gates.jsonl` records `description_problems`, and these refusals count toward the same `MAX_BLOCKS` as failing checks. `passed` still means the checks alone.
+
+The fallback is for a run whose hook gave up refusing. `run-issue.sh` reads the last gate line's `description_problems` with `jq`, after the push, so deciding the label cannot lose the work. If the list is not empty, the draft PR still opens, since filling in a section costs less than a rerun. The script exits 4, and the workflow labels the issue `needs-human` instead of `factory:review`, with a comment listing what is missing, so the review agent never runs on a PR a person must fix first. The person fills the description in, then adds `factory:review` or merges. The `done` job accepts any factory state, `needs-human` included, and moves the issue to `done` when the factory's PR merged, so merging that PR after fixing its description still reaches `done` and records rework.
+
+Tested by: TL-8 (`docs/notes/08-self-explaining-prs.md`).
 
 ### Humans merge: two rulesets and a factory App (TL-10)
 
@@ -101,6 +111,14 @@ TL-11 added the columns a run needs to be reconstructed from its row and its PR:
 The writer is `platform/runlog/runlog.ts`, called by the script and the workflow rather than by Claude Code hooks (TL-12). Hooks run in the agent's environment, which `run-issue.sh` empties to `PATH` and `HOME` so nothing secret can reach a public PR; a hook that wrote rows would need `DATABASE_URL` there. The script also already holds what a row needs: the transcript, the gate log and the PR. It inserts the row first, before anything that can fail, and ends it from an `EXIT` trap, so every exit writes an outcome. The workflow's last step ends any row still running as `failed`, with whatever the run's directory holds, for a script that was killed or cancelled, and its `done` job sets `rework` by comparing each merged PR's head with the commit the run handed off. A workflow run's row id is `github-<run id>-<attempt>`, so rows and Actions runs join directly. Tokens and cost are Claude Code's own report, summed over every model the run called.
 
 Tested by: TL-11, TL-12 (`docs/notes/12-run-log-rows.md`). The dashboard (TL-13) only reads this table.
+
+### The dashboard is a static page rendered from the run log (TL-13)
+
+`pnpm dashboard` reads the `runs` table and writes one self-contained HTML file: inline SVG charts and a table, with no scripts, no chart library and no server. A hosted app would need its own deploy, its own read access to Neon, and Vercel authentication. That is more moving parts than four weekly charts need, and none of it would change what the numbers say. A file can be opened locally, attached to a stage note, or published by any static host later.
+
+The page groups ended production runs by factory and by the UTC week they started, and computes every metric in TypeScript rather than SQL. Week arithmetic differs between SQLite and Postgres, and the run log's rule is one query that runs on both. The same rows give byte-identical pages from either database. What each metric counts is defined in `platform/dashboard/README.md`.
+
+Tested by: TL-13 (`docs/notes/13-cost-rework-dashboard.md`). Revisit when someone other than the owner needs to see it without running a command: then a scheduled workflow renders it from Neon and publishes it behind authentication.
 
 ### Benchmark from the repository's own history (TL-14)
 
