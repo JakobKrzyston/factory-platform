@@ -10,7 +10,7 @@ import { after, test } from "node:test";
 import { fileURLToPath } from "node:url";
 
 import { type CheckResult, baseChecks, runChecks } from "./checks";
-import { type GateConfig, MAX_BLOCKS, verdict } from "./stop-hook";
+import { type GateConfig, MAX_BLOCKS, blocked, verdict } from "./stop-hook";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "../..");
 // srt sandboxes with Seatbelt on macOS and bubblewrap on Linux; GitHub's Ubuntu runners do not allow bubblewrap's
@@ -44,6 +44,9 @@ function secret(): { dir: string; file: string } {
 }
 
 const result = (name: string, ok: boolean, output = ""): CheckResult => ({ name, ok, exitCode: ok ? 0 : 1, seconds: 0, output });
+// A final message that passes the description check (TL-8).
+const DESCRIPTION = "## Risk\n\nTwo-way door. Blast radius: the tests.\n\n## Evidence\n\nThe hook's own tests.";
+const stopInput = (message: string) => JSON.stringify({ hook_event_name: "Stop", last_assistant_message: message });
 
 test("the agent may stop when every check passes", () => {
   assert.deepEqual(verdict([result("typecheck", true), result("test", true)], 0), { block: false, message: "" });
@@ -68,12 +71,60 @@ test(`the hook stops blocking after ${MAX_BLOCKS} blocked attempts`, () => {
   assert.equal(verdict([result("test", false)], MAX_BLOCKS).block, false);
 });
 
+test("an incomplete description blocks the stop even when every check passes, and says to write it whole", () => {
+  const { block, message } = verdict([result("test", true)], 0, ["There is no Risk section."]);
+  assert.equal(block, true);
+  assert.match(message, /^Pull request description: .* There is no Risk section\./);
+  assert.match(message, /whole description again/);
+  assert.doesNotMatch(message, /Quality gate/);
+});
+
+test("a failing check and an incomplete description are reported together", () => {
+  const { message } = verdict([result("lint", false)], 0, ["The Evidence section is empty."]);
+  assert.match(message, /^Quality gate: lint failed[\s\S]*Pull request description: [\s\S]*Evidence section is empty/);
+});
+
+test("description refusals count toward the block limit", () => {
+  assert.equal(blocked({ at: "", passed: true, checks: [], description_problems: ["x"] }), true);
+  assert.equal(blocked({ at: "", passed: true, checks: [], description_problems: [] }), false);
+  assert.equal(blocked({ at: "", passed: false, checks: [] }), true);
+  assert.equal(verdict([], MAX_BLOCKS, ["x"]).block, false);
+});
+
+test("the hook refuses a final message that is a note about a fix, then lets the full description through", () => {
+  const dir = scratch();
+  const run = scratch({ "base-package.json": JSON.stringify({ scripts: {} }) });
+  const config: GateConfig = { checkout: dir, package_json: join(run, "base-package.json"), log: join(run, "gates.jsonl"), deny_read: [] };
+  writeFileSync(join(run, "gate.json"), JSON.stringify(config));
+  const hook = (message: string) =>
+    spawnSync(process.execPath, ["--import", "tsx", "platform/gates/stop-hook.ts", join(run, "gate.json")], {
+      cwd: ROOT,
+      encoding: "utf8",
+      input: stopInput(message),
+    });
+
+  const refused = hook("Fixed the lint error; all checks pass.");
+  assert.equal(refused.status, 2, refused.stderr);
+  assert.match(refused.stderr, /There is no Risk section\. There is no Evidence section\./);
+  const finished = hook(DESCRIPTION);
+  assert.equal(finished.status, 0, finished.stderr);
+
+  const lines = readFileSync(config.log, "utf8").trim().split("\n").map((line) => JSON.parse(line));
+  assert.deepEqual(
+    lines.map((l) => [l.passed, l.description_problems]),
+    [
+      [true, ["There is no Risk section.", "There is no Evidence section."]],
+      [true, []],
+    ],
+  );
+});
+
 test("an agent stopping to ask a question is let through without running the checks", () => {
   const dir = scratch();
   const run = scratch({ "base-package.json": JSON.stringify({ scripts: { test: "exit 1" } }) });
   const config: GateConfig = { checkout: dir, package_json: join(run, "base-package.json"), log: join(run, "gates.jsonl"), deny_read: [] };
   writeFileSync(join(run, "gate.json"), JSON.stringify(config));
-  const input = JSON.stringify({ hook_event_name: "Stop", last_assistant_message: "QUESTION: Zero words, or an error?" });
+  const input = stopInput("QUESTION: Zero words, or an error?");
   // tsx's loader rather than its CLI, whose IPC socket the gate's sandbox denies: this test also runs inside the gate.
   const hook = spawnSync(process.execPath, ["--import", "tsx", "platform/gates/stop-hook.ts", join(run, "gate.json")], {
     cwd: ROOT,
@@ -164,7 +215,12 @@ test("the stop hook, started as Claude Code starts it, blocks a broken checkout 
   // run-issue.sh starts claude with only PATH and HOME, and the hook inherits that: no TMPDIR, no NODE_TEST_CONTEXT.
   const env = { PATH: process.env.PATH, HOME: process.env.HOME };
   const hook = () =>
-    spawnSync("node_modules/.bin/tsx", ["platform/gates/stop-hook.ts", join(run, "gate.json")], { cwd: ROOT, encoding: "utf8", env });
+    spawnSync("node_modules/.bin/tsx", ["platform/gates/stop-hook.ts", join(run, "gate.json")], {
+      cwd: ROOT,
+      encoding: "utf8",
+      env,
+      input: stopInput(DESCRIPTION),
+    });
 
   const blocked = hook();
   assert.equal(blocked.status, 2, blocked.stderr);

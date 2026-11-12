@@ -9,15 +9,13 @@ Every factory pull request fills in the sections of the repository's pull reques
 
 ## Writing it (implementer)
 
-Your final message is the description, starting at its first heading. Fill in every section; delete the `<!-- -->` hints.
+Your final message is the description, from its first heading, with nothing before it. Answer each section's `<!-- -->` hint, then delete the hints. Beyond what the hints say:
 
-- **What was built**: the change in the user's terms, then the files or modules it touches.
-- **How to try it**: commands or steps a reviewer can follow from a clean checkout, with what they should see.
-- **Risk**: say "one-way door" or "two-way door" and why. Two-way means a plain revert undoes it. Migrations, deleted or rewritten data, changed public interfaces, and anything published or sent are one-way. Then "Blast radius:" and what breaks, and for whom, if the change is wrong.
-- **Evidence**: the tests you added or changed and what they cover, and the commands you ran with their results. For a UI change, say what you looked at, or that nobody has looked at it yet. Claim only what you ran in this run.
-- Keep the last line, `Implements TL-n`, only when the issue names a TL requirement. Otherwise delete it.
+- **Risk** uses the words "one-way door" or "two-way door", and "Blast radius". Migrations, deleted or rewritten data, changed public interfaces, and anything published or sent are one-way.
+- **Evidence** names each command you ran with its result. For a UI change, say what you looked at, or that nobody has looked at it yet.
+- Keep the last line, `Implements TL-n`, only when the issue names a TL requirement.
 
-`scripts/run-issue.sh` checks the Risk and Evidence sections (`platform/gates/pr-description.ts`). If either is missing, or Risk names no door or no blast radius, the pull request still opens but the issue goes to `factory:needs-human`, not `factory:in-review`.
+The stop hook checks Risk and Evidence (`platform/gates/pr-description.ts`). While either is missing, or Risk names no door or no blast radius, it refuses to let you finish. After you fix a failing check, write the whole description again as your final message.
 
 ## Checking it (reviewer)
 

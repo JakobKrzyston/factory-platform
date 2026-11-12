@@ -1,25 +1,34 @@
 /** Checks that a pull request description has the Risk and Evidence sections of .github/pull_request_template.md
- *  filled in (TL-8). Exports descriptionProblems. Run by scripts/run-issue.sh, from this repository's root:
- *  tsx platform/gates/pr-description.ts < body.md   prints one problem per line, nothing when the body passes */
-import { readFileSync, realpathSync } from "node:fs";
-import { pathToFileURL } from "node:url";
+ *  filled in (TL-8). Exports descriptionProblems, which the stop hook (stop-hook.ts) runs on the agent's final message. */
+
+// Hyphen, non-breaking hyphen, en and em dashes and the like, or a space: "two-way", "two‑way", "two way".
+const JOIN = "[\\s\\-\\u2010-\\u2015]*";
+const DOOR = new RegExp(`\\b(one|two)${JOIN}way${JOIN}doors?\\b`, "i");
+const BLAST_RADIUS = new RegExp(`\\bblast${JOIN}radius\\b`, "i");
+// The template's trailer, in any of the ways an agent writes it: "**Implements TL-8**", "Implements TL-8, TL-9."
+const TRAILER = /^[\s*_]*Implements\s+TL-\d*(\s*(,|and|&)?\s*TL-\d+)*[\s*_.]*$/i;
 
 /** Returns the text under each `## ` heading, keyed by the lower-cased heading. HTML comments and the template's
- *  closing `Implements TL-n` line are left out, so neither the template's hints nor its trailer counts as an answer. */
+ *  closing `Implements TL-n` line are left out, so neither the template's hints nor its trailer counts as an answer.
+ *  Lines inside code fences are text, never headings, and a repeated heading adds to its section. */
 function sections(body: string): Map<string, string> {
   const found = new Map<string, string>();
   let current: string | null = null;
+  let fence: string | null = null;
   for (const line of body.replace(/<!--[\s\S]*?-->/g, "").split("\n")) {
-    if (/^Implements TL-\d*\s*$/.test(line)) continue;
-    const heading = line.match(/^##\s+(.*?)\s*#*\s*$/);
-    if (heading) {
-      current = heading[1].toLowerCase();
-      found.set(current, "");
-    } else if (/^#\s/.test(line)) {
+    const marker = line.match(/^\s*(`{3,}|~{3,})/)?.[1];
+    if (fence === null && marker) fence = marker;
+    else if (fence !== null && marker?.startsWith(fence)) fence = null;
+    else if (fence === null && TRAILER.test(line)) continue;
+    else if (fence === null && /^##\s/.test(line)) {
+      current = line.replace(/^##\s+/, "").replace(/\s*#*\s*$/, "").toLowerCase();
+      if (!found.has(current)) found.set(current, "");
+      continue;
+    } else if (fence === null && /^#\s/.test(line)) {
       current = null;
-    } else if (current !== null) {
-      found.set(current, `${found.get(current)}${line}\n`);
+      continue;
     }
+    if (current !== null) found.set(current, `${found.get(current)}${line}\n`);
   }
   return found;
 }
@@ -40,8 +49,8 @@ export function descriptionProblems(body: string): string[] {
   if (risk === undefined) problems.push("There is no Risk section.");
   else if (!risk) problems.push("The Risk section is empty.");
   else {
-    if (!/\b(one|two)[- ]way\b/i.test(risk)) problems.push("The Risk section does not say one-way or two-way door.");
-    if (!/blast radius/i.test(risk)) problems.push("The Risk section does not state the blast radius.");
+    if (!DOOR.test(risk)) problems.push("The Risk section does not say one-way door or two-way door.");
+    if (!BLAST_RADIUS.test(risk)) problems.push("The Risk section does not state the blast radius.");
   }
 
   const evidence = section("evidence");
@@ -49,9 +58,4 @@ export function descriptionProblems(body: string): string[] {
   else if (!evidence) problems.push("The Evidence section is empty.");
 
   return problems;
-}
-
-// realpath: import.meta.url has symlinks resolved and argv[1] does not.
-if (import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href) {
-  for (const problem of descriptionProblems(readFileSync(0, "utf8"))) console.log(problem);
 }

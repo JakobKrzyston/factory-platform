@@ -108,7 +108,7 @@ jobs:
               echo
               tail -n +2 "$RUNNER_TEMP/out" | sed 's/^/- /'
               echo
-              echo "Fill in the missing sections on the pull request, then replace \`factory:needs-human\` with \`factory:in-review\`. Or close the pull request and add \`factory:ready\` to run again. [Run log]($RUN_URL)"
+              echo "Fill in the missing sections on the pull request, then merge it or replace \`factory:needs-human\` with \`factory:in-review\`. Or close the pull request and add \`factory:ready\` to run again. [Run log]($RUN_URL)"
             } > "$comment"
             pnpm exec tsx platform/queue/queue.ts set "$REPO" "$ISSUE" needs-human "$comment"
           else
@@ -150,11 +150,14 @@ jobs:
           include-hidden-files: true
           if-no-files-found: ignore
 
-  # The factory's PR says "Closes #N", so merging it closes the issue as completed.
+  # The factory's PR says "Closes #N", so merging it closes the issue as completed. A PR whose description was
+  # incomplete (run-issue.sh exit 4) leaves its issue at needs-human, and a person may merge it once they have
+  # filled the description in without moving the label first (TL-8).
   done:
     if: >-
       github.event.action == 'closed' && github.event.issue.state_reason == 'completed'
-      && contains(github.event.issue.labels.*.name, 'factory:in-review')
+      && (contains(github.event.issue.labels.*.name, 'factory:in-review')
+          || contains(github.event.issue.labels.*.name, 'factory:needs-human'))
     runs-on: ubuntu-latest
     environment: factory
     steps:
