@@ -135,7 +135,18 @@ Tested by: TL-13 (`docs/notes/13-cost-rework-dashboard.md`). Revisit when someon
 
 ### Benchmark from the repository's own history (TL-14)
 
-The benchmark is closed issues from this repository with their merged PRs and a written expected outcome. It grows as the project does. A factory change is judged by replaying the benchmark on the old and new definition, scored by the files under `scorers/`.
+The benchmark is past issues from this repository, most with a merged PR, and a written expected outcome for each. It grows as the project does. A factory change is judged by replaying the benchmark on the old and new definition, scored by the files under `scorers/`.
+
+Each case is `benchmark/<issue>-<slug>/case.md`. Its settings are `key: value` lines between `---` fences, like `agent.md`:
+
+- `issue` and `pr`: the issue, and the reference PR.
+- `base_sha`: the commit the replay starts from.
+- `role`: the role the case mainly tests.
+- `stages`: the roles to replay.
+- `files`: the files the change may touch.
+- `checks`: one shell line that proves the outcome.
+
+The body is a verbatim snapshot of the issue, followed by the expected outcome in plain words. Triage, spec and review produce comments, not code. So their cases carry no checks, and the expected outcome is what a scorer judges the comment against. A review-only case reviews the reference PR's diff, with the issue as its spec. The rules for each field, and why each case was chosen, are in `benchmark/README.md`.
 
 Tested by: TL-14 to TL-16, then every meta-PR (TL-23).
 
