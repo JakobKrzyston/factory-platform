@@ -57,6 +57,12 @@ test("the chain runs triage, spec, implement, review and ends with a human", () 
   assert.equal(state, "in-review");
 });
 
+test("the last stage in STAGES hands off to in-review, so the chain ends with a human", () => {
+  const keys = Object.keys(STAGES) as (keyof typeof STAGES)[];
+  const last = keys[keys.length - 1];
+  assert.equal(STAGES[last].next, "in-review");
+});
+
 test("a run that ends after the issue closed does not move it, but merging still moves it to done", () => {
   assert.equal(moveRefusal({ state: "open" }, "review"), null);
   assert.match(moveRefusal({ state: "closed" }, "review") ?? "", /closed/);
