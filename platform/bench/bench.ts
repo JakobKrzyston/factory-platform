@@ -158,5 +158,10 @@ if (import.meta.url === pathToFileURL(process.argv[1]).href) {
     console.error(values.case ? `no benchmark case ${values.case}` : "no cases under benchmark/");
     process.exit(1);
   }
-  console.log(formatSummary(await bench(root, factory, ref, cases, maxUsd)));
+  try {
+    console.log(formatSummary(await bench(root, factory, ref, cases, maxUsd)));
+  } catch (error) {
+    console.error(`bench: ${error instanceof Error ? error.message : error}`);
+    process.exit(1);
+  }
 }
