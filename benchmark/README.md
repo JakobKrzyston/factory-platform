@@ -17,7 +17,7 @@ Ten past issues from this repository. Each one has the outcome it should have re
 | [4-run-issue-review](4-run-issue-review/case.md) | review | review | #29 | Finding three defects that survived into the merged diff and were filed as #33 and #34. |
 | [5-quality-gates-review](5-quality-gates-review/case.md) | review | review | #40 | Finding that the gate can never pass on this repository (#41). |
 
-Per role: one implementation case, three spec cases, four triage cases (plus the triage stage of #52), and two review cases. Implementation is one short of the target. The history has no second issue that an implement replay can pass, so two small chores are drafted below for the owner to file.
+Per role: one implementation case, three spec cases, four triage cases (plus the triage stage of #52), and two review cases. Implementation is one short of the target. The history has no second issue that an implement replay can pass, so two small chores were drafted below and filed as #60 and #61.
 
 ## Case format
 
@@ -75,15 +75,15 @@ Material is thin. Only two issues have ever gone through the factory (#52 and #5
 
 ## Drafted chores for the implementation gap
 
-Each would be filed as an issue and labelled `factory:ready`. That spends money and writes to GitHub, so the owner decides. Once one merges through the factory, its case can be added with the check below. Each check fails on `main` today.
+The owner filed both, verbatim, as #60 and #61. They get the `factory:ready` label once TL-17 (#57) merges, so the runs also exercise its route job. Once a run merges, its case is added with the check below. Each check fails on `main` today.
 
-**1. Fix the two lint warnings in `scripts/check-merge-gate.ts`**
+**1. Fix the two lint warnings in `scripts/check-merge-gate.ts` (#60)**
 
 > `pnpm lint` reports two warnings in `scripts/check-merge-gate.ts`: `noExplicitAny` on `api()`'s return type (line 14) and `noNonNullAssertion` on `keyPath!` (line 29). Fix both without disabling the rules. Give `api()` a typed or `unknown` body that its callers narrow, and check `keyPath` before using it, with the same error the script gives for other missing settings. Only that file changes. `pnpm exec biome lint --error-on-warnings` passes.
 
 Exercises triage (it should pass the issue on), spec and implement. Check: `pnpm typecheck && pnpm exec biome lint --error-on-warnings && pnpm test`.
 
-**2. Test that `docs/PLAN.md` matches `docs/roadmap.ts`**
+**2. Test that `docs/PLAN.md` matches `docs/roadmap.ts` (#61)**
 
 > Rule R-4 says a change to `docs/roadmap.ts` comes with `docs/PLAN.md` re-rendered, but nothing checks it. Make `scripts/render-plan.ts` export the rendering as a function (running it still writes the file), and add a test under `platform/` that fails when `docs/PLAN.md` differs from what `docs/roadmap.ts` renders. `pnpm test` passes.
 
