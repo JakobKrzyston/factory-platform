@@ -21,4 +21,6 @@ total                                                 $0.13  53s
 
 ## What a case gives the harness
 
-From `benchmark/<id>/case.md` (`cases.ts`), it reads `issue`, `base_sha`, `role`, `stages` and the `## Issue` snapshot, whose first line, without leading `#`s, is the issue's title and the rest its body. `pr`, `files`, `checks` and `## Expected outcome` are for the scorers (TL-16). A review stage needs spec and implement stages before it: the reviewer reviews the patch the replay's implement stage made, against the spec its spec stage wrote.
+From `benchmark/<id>/case.md` (`cases.ts`), it reads `issue`, `pr`, `base_sha`, `role`, `stages` and the `## Issue` snapshot. The snapshot's first line, without leading `#`s, is the issue's title. The rest is its body, unwrapped from the code fence TL-14 puts around it, and the section runs to `## Expected outcome`, so the issue's own headings stay in it. `files`, `checks` and the expected outcome are for the scorers (TL-16).
+
+A review reviews the patch the replay's implement stage made. With no implement stage before it, it reviews the case's merged `pr` from `base_sha` to the PR's head, found from the merge commit in the local repository. It takes the spec its spec stage wrote, or, with no spec stage, the issue. A review with neither an implement stage nor a `pr` is refused.

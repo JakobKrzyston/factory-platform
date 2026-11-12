@@ -19,7 +19,7 @@ The brief added two more: no GitHub writes during a replay, covered by a test, a
 
 **Self-review found that the first version leaked the answer.** It cloned the whole local repository, so the agent's clone held every later commit, including the PR that closed the issue: `git show origin/main:<file>` would have given it the solution. The clone now fetches only `base_sha` and its history. The test plants a later commit and checks that `git log --all` in the agent's clone shows only the base. The harness's own clone of the ref holds `benchmark/`, with every expected outcome, and all history. It started out in `$TMPDIR`, which the agent's sandbox can read. It now goes under this checkout's `.runlog/`, inside the home directory the sandbox denies, and the harness refuses to run from a checkout outside the home directory.
 
-**Stages hand work on through files.** The harness feeds the triage note and the spec to the next stage as comments, with the bodies the workflow would post. The implement run's patch is committed onto the base and becomes the PR the reviewer reviews. A stage that does not end `done` ends its case. A review stage therefore needs spec and implement stages before it, and `cases.ts` refuses a case without them. TL-14 owns the case format; the manager has the two rules this adds (the first snapshot line is the title, and review needs spec and implement before it).
+**Stages hand work on through files.** The harness feeds the triage note and the spec to the next stage as comments, with the bodies the workflow would post. The implement run's patch is committed onto the base and becomes the PR the reviewer reviews. A stage that does not end `done` ends its case. TL-14 owns the case format. Its cases put the title alone on the snapshot's first line and fence the body, which `cases.ts` unwraps. Two of them (#4 and #5) are review-only: they score the reviewer on defects known to be in the diffs of PRs #29 and #40 as merged, which a freshly implemented diff would not have. A review with no implement stage before it therefore reviews the case's `pr`, from `base_sha` to the PR's head, the second parent of its local merge commit. With no spec stage before it, it takes the issue as its spec. A review with neither an implement stage nor a `pr` is refused.
 
 **Spending.** Each run keeps its role's `budget_usd`. `--max-usd` (default 10) stops starting runs once the benchmark has spent that much, so the most it can overshoot is one run's budget, at most $5 for implement today. `--case` takes a directory name or an issue number.
 
@@ -42,11 +42,21 @@ That is the run at `2004fde`. A first run at `33df4cb`, before the history fix, 
 
 **The review replay, run directly** (`REPLAY=... scripts/run-issue.sh review`, with that spec and PR #53's real diff as the patch), ended `done` in 12 s for $0.04. It raised two findings, both `[no rule]` nits the spec had asked for, and posted nothing. Its row has `review_findings` 2 and `benchmark` true.
 
-Real spend for this PR: $0.35 over five agent runs, all on the local SQLite run log. No cloud rows were written.
+**TL-14's review-only case 4** (PR #29, TL-4's `run-issue.sh`), through the harness at `3372816`:
+
+```
+case                role    outcome  checks  cost   wall time
+4-run-issue-review  review  done     -       $0.07  28s
+total                                        $0.07  28s
+```
+
+The reviewer saw the issue as its spec and PR #29's diff as merged, 4 files, and posted nothing. It raised 5 findings. Of the three defects the case says are still in that diff, it caught one, the clone that is never removed, and called it a nit. It missed the two that matter most: the pushed branch runs the target's CI with its secrets (#33), and the time limit leaves child processes running (#34). It also flagged host-side git running on a clone whose `.git` the agent might write, which TL-6 later hardened. Scoring that properly is TL-16's job. One run says only that the harness can now measure it.
+
+Real spend for this PR: $0.42 over six agent runs, all on the local SQLite run log. No cloud rows were written.
 
 ## Not yet
 
 - **The full benchmark run** waits for TL-14's cases. Until it runs, TL-15 stays `in_progress` in the roadmap.
-- **A full spec → implement → review chain on real agents**: implement stops at the gate on macOS (above). The review hand-off is covered by the test, with a fake agent, and by the direct review replay.
+- **A full spec → implement → review chain on real agents**: implement stops at the gate on macOS (above). The review hand-off from implement is covered by the test, with a fake agent, and by the direct review replay.
 - **Postgres**: replay rows go through the same `startRun` as production rows. A benchmark row has not yet been written to Neon.
 - Cases replay against this repository only, one at a time.
