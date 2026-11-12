@@ -243,8 +243,7 @@ jq -n --arg checkout "$WORKDIR" --arg run_dir "$RUN_DIR" --arg home "$HOME" --ar
   '{checkout: $checkout, package_json: "\($run_dir)/base-package.json", log: "\($run_dir)/gates.jsonl",
     deny_read: [$home, $key_dir]}' > "$RUN_DIR/gate.json"
 
-# Bash runs in the OS sandbox: writes only inside the clone, no reads of the
-# owner's home directory or the key, no network. The stop hook runs outside it,
+# Bash runs in the OS sandbox (scripts/agent-settings.sh). The stop hook runs outside it,
 # and runs the checks in a sandbox of its own (platform/gates/checks.ts). It runs
 # from $ROOT so that tsx does not load the clone's tsconfig.json. Implement hands
 # in changes and is gated by the checks; review hands in findings and is gated by
@@ -257,46 +256,8 @@ elif [[ $ROLE == review ]]; then
   HOOKS=$(jq -n --arg command "cd \"$ROOT\" && node_modules/.bin/tsx platform/standards/standards.ts review-hook \"$RUN_DIR/gates.jsonl\"" \
     '{Stop: [{hooks: [{type: "command", command: $command, timeout: 60}]}]}')
 fi
-# The reviewer may not read the git metadata either: the PR's commit message holds
-# the issue's title, and other factory branches hold earlier attempts.
-DENY_READ=("Read(~/**)" "Read(/$KEY_DIR/**)")
-if [[ $ROLE == review ]]; then DENY_READ+=("Read(/$GIT_PARENT/**)"); fi
-# The pnpm and Node installs sit under the denied home directory: on Actions
-# /home/runner/setup-pnpm and the runner's Node, on macOS ~/Library/pnpm. Without
-# a read exception, pnpm is "Operation not permitted" in Bash (#75). Allow only
-# each tool's own install directory, as sandboxSettings does for nodeInstall and
-# srtPackage in platform/gates/checks.ts. Paths outside $HOME are readable already.
-ALLOW_READ=()
-allow_install() { # $1: pnpm or node
-  local bin real dir seen home_real
-  bin=$(command -v "$1") || return 0
-  real=$(realpath "$bin") || return 0
-  if [[ $1 == node ]]; then dir=$(dirname "$(dirname "$real")"); else dir=$(dirname "$real"); fi
-  if [[ $1 == pnpm && -n ${PNPM_HOME:-} ]]; then
-    home_real=$(realpath "$PNPM_HOME" 2>/dev/null) || home_real=
-    if [[ -n $home_real && $real == "$home_real"/* ]]; then dir=$home_real; fi
-  fi
-  [[ $dir == "$HOME"/* ]] || return 0
-  for seen in ${ALLOW_READ[@]+"${ALLOW_READ[@]}"}; do [[ $seen == "$dir" ]] && return 0; done
-  ALLOW_READ+=("$dir")
-}
-allow_install pnpm
-allow_install node
-cat > "$RUN_DIR/settings.json" <<JSON
-{
-  "apiKeyHelper": "cat $KEY_DIR/key",
-  "autoMemoryEnabled": false,
-  "permissions": { "deny": $(jq -cn '$ARGS.positional' --args "${DENY_READ[@]}") },
-  "sandbox": {
-    "enabled": true,
-    "failIfUnavailable": true,
-    "autoAllowBashIfSandboxed": true,
-    "allowUnsandboxedCommands": false,
-    "filesystem": { "allowRead": $(jq -cn '$ARGS.positional' --args ${ALLOW_READ[@]+"${ALLOW_READ[@]}"}) }
-  },
-  "hooks": $HOOKS
-}
-JSON
+source "$ROOT/scripts/agent-settings.sh"
+agent_settings "$ROLE" "$KEY_DIR" "$GIT_PARENT" "$HOOKS" > "$RUN_DIR/settings.json"
 
 # The reviewer gets the spec and the diff, and nothing the implementer saw or
 # said: not the issue, its comments or the PR's description.

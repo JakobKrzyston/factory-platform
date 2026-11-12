@@ -55,6 +55,29 @@ jobs:
           sudo apt-get install -y -q --no-install-recommends -o Acquire::Retries=5 bubblewrap socat ripgrep
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
           if [[ -f /etc/apparmor.d/bwrap-userns-restrict ]]; then sudo apparmor_parser -R /etc/apparmor.d/bwrap-userns-restrict; fi
+      # pnpm/action-setup installs pnpm under the home directory, which the agents' Bash sandbox denies (#75). pnpm
+      # runs outside the sandbox, fails inside it with only srt's own package readable, and runs with what
+      # scripts/agent-settings.sh allows as well.
+      - name: pnpm runs in a sandbox that denies the home directory but allows pnpm's install
+        run: |
+          source scripts/agent-settings.sh
+          allow=$(agent_settings implement /no-key /no-git '{}' | jq -c .sandbox.filesystem.allowRead)
+          echo "PNPM_HOME=$PNPM_HOME allowRead=$allow"
+          ls -la "$PNPM_HOME"
+          srt_cli=$PWD/node_modules/@anthropic-ai/sandbox-runtime/dist/cli.js
+          srt_package=$(realpath node_modules/@anthropic-ai/sandbox-runtime)
+          settings() {
+            jq -n --arg home "$HOME" --arg srt "$srt_package" --argjson allow "$1" \
+              '{filesystem: {denyRead: [$home], allowRead: ([$srt] + $allow), allowWrite: [], denyWrite: []},
+                network: {allowedDomains: [], deniedDomains: []}}'
+          }
+          probe=$(mktemp -d)
+          settings '[]' > "$probe/without.json"
+          settings "$allow" > "$probe/with.json"
+          cd "$probe"
+          env -i PATH="$PATH" HOME="$HOME" pnpm --version
+          if env -i PATH="$PATH" HOME="$HOME" node "$srt_cli" --settings without.json -c 'pnpm --version'; then exit 1; fi
+          env -i PATH="$PATH" HOME="$HOME" node "$srt_cli" --settings with.json -c 'pnpm --version'
       # As run-issue.sh does: a fresh clone outside the home directory, its dependencies installed, and the hook
       # started with only PATH and HOME.
       - name: The checks pass inside the gate
