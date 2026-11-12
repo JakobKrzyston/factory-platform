@@ -208,7 +208,7 @@ A benchmark of past issues from this repository can be replayed against any vers
 
 ### TL-14: Benchmark set of past issues
 
-research · measurement · 2027-Q1
+research · measurement · 2027-Q1 · done
 
 Ten to twenty closed issues with their merged PRs, each with a written expected outcome and the checks that prove it. Drawn from this repository as it grows, so the benchmark is the factory's own history.
 
@@ -219,7 +219,7 @@ Ten to twenty closed issues with their merged PRs, each with a written expected 
 
 ### TL-15: Replay harness
 
-infrastructure · measurement · 2027-Q1 · in_progress
+infrastructure · measurement · 2027-Q1 · done
 
 A command that runs the benchmark through a named factory version in isolated checkouts and writes the results to the run log tagged as a benchmark run.
 
@@ -249,7 +249,7 @@ A factory is a directory of agents, triggers, scorers and skills on top of a sha
 
 ### TL-17: Factory definition as a directory
 
-infrastructure · platform · 2027-Q2
+infrastructure · platform · 2027-Q2 · done
 
 `factories/<name>/` with `factory.yaml`, `agents/`, `triggers/`, `scorers/` and `skills/`. A resource's name is its path. Exactly one agent per factory is the foreman that dispatches the others.
 
