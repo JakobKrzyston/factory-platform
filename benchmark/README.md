@@ -75,7 +75,7 @@ Material is thin. Only two issues have ever gone through the factory (#52 and #5
 
 ## Drafted chores for the implementation gap
 
-The owner filed both, verbatim, as #60 and #61. They get the `factory:ready` label once TL-17 (#57) merges, so the runs also exercise its route job. Once a run merges, its case is added with the check below. Each check fails on `main` today.
+The owner filed both, verbatim, as #60 and #61. Both were labelled `factory:ready` on 2026-11-12 and run on the factory chain on `main`. Once a run merges, its case is added with the check below. Each check fails on `main` today.
 
 **1. Fix the two lint warnings in `scripts/check-merge-gate.ts` (#60)**
 
