@@ -187,6 +187,25 @@ test("checks run in the sandbox: the checkout is writable; home, denied paths, n
   assert.match(network.output, /CONNECT tunnel failed, response 403/);
 });
 
+test("a check can serve and connect on loopback, but cannot connect off the machine without the proxy", { skip: NO_SANDBOX }, () => {
+  // Like platform/mcp-gateway's tests, which start a fake Throughline on 127.0.0.1 (#64).
+  const loopback = `node -e "const net = require('node:net'); const server = net.createServer((c) => c.end('served')).listen(0, '127.0.0.1', () => net.connect(server.address().port, '127.0.0.1').on('data', (d) => { console.log(String(d)); process.exit(0); }))"`;
+  // An IP literal, so no DNS is involved: the refusal is the sandbox's, whether or not this machine is online.
+  const direct = `node -e "require('node:net').connect(443, '1.1.1.1').on('connect', () => process.exit(0)).on('error', (e) => { console.log(e.code); process.exit(1); })"`;
+  const [served, egress] = runChecks(
+    scratch(),
+    [
+      { name: "loopback", script: loopback },
+      { name: "direct", script: direct },
+    ],
+    [homedir()],
+  );
+  assert.equal(served.ok, true, served.output);
+  assert.match(served.output, /served/);
+  assert.equal(egress.ok, false);
+  assert.match(egress.output, /EPERM/);
+});
+
 test("a node planted in the checkout's node_modules/.bin runs inside the sandbox", { skip: NO_SANDBOX }, () => {
   const outside = scratch();
   const dir = scratch({

@@ -30,9 +30,9 @@ export function baseChecks(packageJson: string): Check[] {
   });
 }
 
-/** Builds the sandbox-runtime settings that confine a check to `dir`: no network, writes only in `dir` and `tmp`, and
- *  no reads of `denyRead` (the same paths the agent's own Bash sandbox denies). `dir`, the Node installation and srt's
- *  own package stay readable.
+/** Builds the sandbox-runtime settings that confine a check to `dir`: no network off this machine, writes only in
+ *  `dir` and `tmp`, and no reads of `denyRead` (the same paths the agent's own Bash sandbox denies). `dir`, the Node
+ *  installation and srt's own package stay readable.
  *  Args: dir: the checkout the checks run in; denyRead: absolute paths code the agent wrote must not read;
  *    tmp: the checks' temporary directory.
  *  Returns: an object to write as srt's settings file. */
@@ -43,7 +43,10 @@ export function sandboxSettings(dir: string, denyRead: string[], tmp: string) {
   const srtPackage = dirname(dirname(realpathSync(SRT_CLI)));
   return {
     filesystem: { denyRead, allowRead: [dir, nodeInstall, srtPackage], allowWrite: [dir, tmp], denyWrite: [] },
-    network: { allowedDomains: [], deniedDomains: [] },
+    // Tests that start a server on 127.0.0.1 must be able to bind and connect to it (#64). On macOS this also lets a
+    // check reach any TCP or UDP service on this machine; other hosts and Unix sockets stay refused. Linux ignores it:
+    // bubblewrap already gives the checks a loopback of their own.
+    network: { allowedDomains: [], deniedDomains: [], allowLocalBinding: true },
   };
 }
 
