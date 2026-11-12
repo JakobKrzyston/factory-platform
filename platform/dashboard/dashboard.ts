@@ -38,7 +38,8 @@ export async function readRuns(db: RunLog): Promise<Run[]> {
   const bool = (v: unknown) => (v === null ? null : Boolean(v));
   return rows.map((r) => ({
     factory: r.factory as string,
-    role: r.role as string,
+    // Rows from before TL-7 call the implement role `implementer`; one role keeps one line on the charts.
+    role: r.role === "implementer" ? "implement" : (r.role as string),
     repo: r.repo as string,
     pr: num(r.pr),
     started_at: new Date(r.started_at as string | Date),

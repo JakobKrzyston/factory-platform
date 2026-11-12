@@ -56,7 +56,7 @@ test("weekOf is the UTC Monday, so Sunday night belongs to the week before", () 
   assert.equal(weekOf(new Date("2027-01-01T12:00:00Z")), "2026-12-28"); // across a year end
 });
 
-test("readRuns skips running and benchmark rows and converts SQLite's 1/0 to booleans", async () => {
+test("readRuns skips running and benchmark rows, converts SQLite's 1/0 to booleans and reads implementer as implement", async () => {
   const db = await logWith([
     { id: "a", started_at: "2026-11-10T10:00:00.000Z", pr: 5, cost_usd: 1.5, checks_passed: true, rework: false },
     { id: "b", started_at: "2026-11-10T11:00:00.000Z", status: "running" },
@@ -67,7 +67,7 @@ test("readRuns skips running and benchmark rows and converts SQLite's 1/0 to boo
   assert.deepEqual(runs, [
     {
       factory: "code",
-      role: "implementer",
+      role: "implement",
       repo: "o/r",
       pr: 5,
       started_at: new Date("2026-11-10T10:00:00.000Z"),
@@ -84,12 +84,12 @@ test("weekly metrics: cost per PR, median time per role, gate pass rates and rew
   const db = await logWith([
     // Week of Nov 9: PR 1 took two implementer runs and was reworked; PR 2 merged as handed off; one run failed
     // with no PR, and its cost still counts against the PRs that shipped.
-    { id: "1", started_at: "2026-11-09T09:00:00Z", pr: 1, cost_usd: 2, wall_seconds: 600, checks_passed: false, rework: true },
+    { id: "1", role: "implement", started_at: "2026-11-09T09:00:00Z", pr: 1, cost_usd: 2, wall_seconds: 600, checks_passed: false, rework: true },
     { id: "2", started_at: "2026-11-09T10:00:00Z", pr: 1, cost_usd: 1, wall_seconds: 300, checks_passed: true, rework: true },
     { id: "3", started_at: "2026-11-10T09:00:00Z", pr: 2, cost_usd: 1, wall_seconds: 900, checks_passed: true, rework: false },
     { id: "4", started_at: "2026-11-11T09:00:00Z", status: "failed", cost_usd: 2, wall_seconds: 120 },
-    { id: "5", role: "reviewer", started_at: "2026-11-11T10:00:00Z", pr: 2, cost_usd: 0.5, wall_seconds: 60, review_findings: 0 },
-    { id: "6", role: "reviewer", started_at: "2026-11-12T10:00:00Z", pr: 1, cost_usd: 0.5, wall_seconds: 180, review_findings: 3 },
+    { id: "5", role: "review", started_at: "2026-11-11T10:00:00Z", pr: 2, cost_usd: 0.5, wall_seconds: 60, review_findings: 0 },
+    { id: "6", role: "review", started_at: "2026-11-12T10:00:00Z", pr: 1, cost_usd: 0.5, wall_seconds: 180, review_findings: 3 },
     // Nothing in the week of Nov 16. Week of Nov 23: one run whose cost is unknown. Week of Nov 30: money spent
     // and no PR, which has no cost per PR but must not hide the spend.
     { id: "7", started_at: "2026-11-23T09:00:00Z", pr: 3, wall_seconds: 60, checks_passed: true },
@@ -99,7 +99,8 @@ test("weekly metrics: cost per PR, median time per role, gate pass rates and rew
   await db.close();
 
   assert.deepEqual(dashboard.weeks, ["2026-11-09", "2026-11-16", "2026-11-23", "2026-11-30"]);
-  assert.deepEqual(dashboard.roles, ["implementer", "reviewer"]);
+  // Run 1 says implement and the rest implementer, from before TL-7: one role either way.
+  assert.deepEqual(dashboard.roles, ["implement", "review"]);
   const [first, empty, third, noPr] = dashboard.factories.get("code") ?? [];
   assert.deepEqual(first, {
     week: "2026-11-09",
@@ -109,8 +110,8 @@ test("weekly metrics: cost per PR, median time per role, gate pass rates and rew
     costPerPr: 3.5,
     // Medians of 120, 300, 600 and 900 s, and of 60 and 180 s.
     medianMinutesByRole: new Map([
-      ["implementer", 7.5],
-      ["reviewer", 2],
+      ["implement", 7.5],
+      ["review", 2],
     ]),
     checksPassRate: 2 / 3,
     reviewPassRate: 0.5,

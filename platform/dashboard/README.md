@@ -16,7 +16,7 @@ Rows are production runs that have ended: `benchmark = false` and `status <> 'ru
 | Chart | Definition | Columns |
 | --- | --- | --- |
 | Cost per PR | The week's total `cost_usd` over the distinct PRs the week's runs produced or reviewed. Failed runs that opened no PR still count, because a shipped PR has to pay for the attempts that did not ship. A week that spent money and produced no PR has no cost per PR, so the chart has a gap there; the table's **Total cost** and **PRs** columns show what it spent. Runs killed before Claude Code reported a cost have a null `cost_usd`, so the total is a lower bound. | `cost_usd`, `repo`, `pr` |
-| Time per stage | The median `wall_seconds` of each role's runs, in minutes. One line per role. A role keeps its colour across every factory. | `role`, `wall_seconds` |
+| Time per stage | The median `wall_seconds` of each role's runs, in minutes. One line per role. A role keeps its colour across every factory. Rows from before TL-7 say `implementer`, which reads as `implement`. | `role`, `wall_seconds` |
 | Pass rate at each gate | **Checks**: the share of runs that ran gates whose gates all passed when the run ended. **Review**: the share of reviews that raised no findings. A run with `review_findings` set is a review, whatever its role is called. | `checks_passed`, `review_findings` |
 | Rework rate | The share of merged PRs that a human changed between hand-off and merge. Counted per PR, not per run, since `rework` is set on every run of a PR. | `rework`, `repo`, `pr` |
 
