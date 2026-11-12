@@ -4,7 +4,7 @@
 # Usage: scripts/run-issue.sh <triage|spec|implement|review> https://github.com/<owner>/<repo>/issues/<n>
 #
 # The role's model, tools, budget, time limit and prompt come from its definition,
-# factories/code/agents/<role>/agent.md (TL-7). What the role is given and what
+# factories/$FACTORY/agents/<role>/agent.md (TL-7). What the role is given and what
 # becomes of its answer is this script's:
 #   triage     the issue and its comments; prints a triage note
 #   spec       the issue and its comments; prints the spec, marked for the roles after it
@@ -110,7 +110,7 @@ if [[ $ROLE == implement ]]; then
 
 Write the pull request description as this skill says:
 
-$(cat "$ROOT/factories/code/skills/pr-description/SKILL.md")
+$(cat "$ROOT/factories/$FACTORY/skills/pr-description/SKILL.md")
 
 The pull request template:
 
