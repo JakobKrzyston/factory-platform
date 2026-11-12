@@ -24,13 +24,15 @@ checks: pnpm test
 ---
 ## Issue
 
-# TL-12: Run log rows
+TL-12: Run log rows
 
+\`\`\`\`markdown
 Every run writes a row.
 
-### Acceptance
+## Acceptance
 
 - A row per run.
+\`\`\`\`
 
 ## Expected outcome
 
@@ -41,16 +43,22 @@ test("parseCase reads the settings and splits the issue snapshot into title and 
   assert.deepEqual(parseCase("12-run-log-rows", CASE), {
     id: "12-run-log-rows",
     issue: 12,
+    pr: 47,
     base_sha: "d40a26e0ffeed40a26e0ffeed40a26e0ffeed40a",
     role: "implement",
     stages: ["spec", "implement", "review"],
     title: "TL-12: Run log rows",
-    body: "Every run writes a row.\n\n### Acceptance\n\n- A row per run.",
+    body: "Every run writes a row.\n\n## Acceptance\n\n- A row per run.",
   });
 });
 
-test("parseCase refuses a review with nothing to review, an unknown stage and a missing snapshot", () => {
-  assert.throws(() => parseCase("c", CASE.replace("spec, implement, review", "implement, review")), /needs spec and implement/);
+test("parseCase accepts a review of the case's PR alone, and refuses a review with nothing to review", () => {
+  const reviewOnly = parseCase("c", CASE.replace("spec, implement, review", "review"));
+  assert.deepEqual([reviewOnly.stages, reviewOnly.pr], [["review"], 47]);
+  assert.throws(() => parseCase("c", CASE.replace("spec, implement, review", "review").replace("pr: 47\n", "")), /needs an implement stage before it or a pr/);
+});
+
+test("parseCase refuses an unknown stage, a missing snapshot and a base that is not a commit", () => {
   assert.throws(() => parseCase("c", CASE.replace("spec, implement", "spec, build")), /unknown stages: build/);
   assert.throws(() => parseCase("c", CASE.replace("## Issue", "## Problem")), /missing ## Issue/);
   assert.throws(() => parseCase("c", CASE.replace("base_sha: d40a", "base_sha: main")), /base_sha must be a commit/);

@@ -29,9 +29,23 @@ export type Result = {
 
 const git = (cwd: string, args: string[]) => execFileSync("git", args, { cwd, encoding: "utf8" }).trim();
 
+// run-issue.sh's review role finds the spec by this first line.
+const SPEC_MARKER = "<!-- factory:spec -->";
+
+/** The head commit of a case's merged PR: the second parent of its merge commit, found locally so a replay
+ *  never asks GitHub. */
+function prHead(root: string, c: Case): string {
+  const merge = git(root, ["log", "--all", "--merges", "--format=%P", `--grep=^Merge pull request #${c.pr} from`]);
+  const head = merge.split("\n")[0].split(" ")[1];
+  if (!head) throw new Error(`${c.id}: no merge commit for PR #${c.pr}`);
+  return head;
+}
+
 /** Replays cases through the factory at a ref, one stage at a time, handing each stage's output to the next as
  *  the queue would through GitHub: the triage note and the spec as comments, the implement run's patch as the
- *  PR the reviewer reviews. A stage that does not end `done` ends its case.
+ *  PR the reviewer reviews. A review with no implement stage before it reviews the case's merged PR, from
+ *  base_sha to the PR's head, and one with no spec stage before it takes the issue as its spec. A stage that
+ *  does not end `done` ends its case.
  *
  *  Args:
  *    root: this checkout. Its benchmark/ holds the cases, its repository supplies both the ref and each case's
@@ -41,7 +55,8 @@ const git = (cwd: string, args: string[]) => execFileSync("git", args, { cwd, en
  *    cases: the cases to replay.
  *    maxUsd: no run starts once the runs so far cost this much; the rest are `skipped`.
  *  Returns: one result per stage that ran or was skipped.
- *  Raises: if the ref is unknown, its run-issue.sh cannot replay, or it has no such factory. */
+ *  Raises: if the ref is unknown, its run-issue.sh cannot replay, or it has no such factory, or a review-only
+ *  case's PR has no merge commit in the repository. */
 export async function bench(root: string, factory: string, ref: string, cases: Case[], maxUsd: number): Promise<Result[]> {
   const sha = git(root, ["rev-parse", "--verify", `${ref}^{commit}`]);
   const source = git(root, ["rev-parse", "--path-format=absolute", "--git-common-dir"]);
@@ -76,10 +91,18 @@ export async function bench(root: string, factory: string, ref: string, cases: C
       for (const c of cases) {
         const comments: { user: { login: string }; body: string }[] = [];
         let patch = "";
+        const login = process.env.FACTORY_BOT || "factory";
         for (const role of c.stages) {
           if (spent >= maxUsd) {
             results.push({ case: c.id, role, outcome: "skipped", checks_passed: null, cost_usd: null, wall_seconds: null });
             continue;
+          }
+          if (role === "review" && !comments.some((comment) => comment.body.startsWith(SPEC_MARKER))) {
+            comments.push({ user: { login }, body: `${SPEC_MARKER}\n\n# ${c.title}\n\n${c.body}` });
+          }
+          if (role === "review" && !patch) {
+            patch = join(work, `${c.id}-pr.patch`);
+            writeFileSync(patch, execFileSync("git", ["diff", "--binary", c.base_sha, prHead(root, c)], { cwd: root }));
           }
           const replay = join(work, `${c.id}-${role}.json`);
           writeFileSync(replay, JSON.stringify({ source, base, base_sha: c.base_sha, title: c.title, body: c.body, comments, patch }));
@@ -105,7 +128,6 @@ export async function bench(root: string, factory: string, ref: string, cases: C
           spent += result.cost_usd ?? 0;
           if (run.status !== 0) break;
           const out = run.stdout.trim();
-          const login = process.env.FACTORY_BOT || "factory";
           // The bodies the factory workflow posts, without their run log links.
           if (role === "triage") comments.push({ user: { login }, body: `**Triage**\n\n${out}` });
           if (role === "spec") comments.push({ user: { login }, body: out });

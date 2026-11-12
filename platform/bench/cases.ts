@@ -8,11 +8,12 @@ import { join } from "node:path";
 export const ROLES = ["triage", "spec", "implement", "review"] as const;
 export type Role = (typeof ROLES)[number];
 
-/** What the replay harness reads from a case. The other settings (`pr`, `files`, `checks`) and the expected
- *  outcome are for the scorers (TL-16). */
+/** What the replay harness reads from a case. `pr` is the merged PR a review-only case reviews. The other
+ *  settings (`files`, `checks`) and the expected outcome are for the scorers (TL-16). */
 export type Case = {
   id: string;
   issue: number;
+  pr: number | null;
   base_sha: string;
   role: Role;
   stages: Role[];
@@ -29,10 +30,10 @@ function isRole(value: string): value is Role {
  *  Args:
  *    id: the case's directory name, such as `12-run-log-rows`.
  *    text: the file's contents.
- *  Returns: the case. The issue's title is the snapshot's first line, without leading `#`s; its body is the rest.
- *  Raises: if the fences, a setting or the `## Issue` section is missing or invalid, or a review stage has no
- *  spec and implement stage before it: a replay hands work on only between its own stages, and the reviewer
- *  needs a spec and a change. */
+ *  Returns: the case. The issue's title is the snapshot's first line, without leading `#`s; its body is the rest,
+ *  unwrapped from the code fence a snapshot may put around it.
+ *  Raises: if the fences, a setting or the `## Issue` section is missing or invalid, or a review stage has neither
+ *  an implement stage before it nor a `pr` to review. */
 export function parseCase(id: string, text: string): Case {
   const match = text.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
   if (!match) throw new Error(`${id}: case.md must start with settings between --- lines`);
@@ -57,24 +58,30 @@ export function parseCase(id: string, text: string): Case {
   const stages = required("stages").split(",").map((stage) => stage.trim());
   const unknown = stages.filter((stage) => !isRole(stage));
   if (unknown.length > 0) throw new Error(`${id}: unknown stages: ${unknown.join(", ")}`);
+  const pr = settings.get("pr") ? Number(settings.get("pr")) : null;
+  if (pr !== null && !(Number.isInteger(pr) && pr > 0)) throw new Error(`${id}: pr must be a pull request number`);
   const review = stages.indexOf("review");
-  if (review >= 0 && !(stages.slice(0, review).includes("spec") && stages.slice(0, review).includes("implement"))) {
-    throw new Error(`${id}: a review stage needs spec and implement stages before it`);
+  if (review >= 0 && !stages.slice(0, review).includes("implement") && pr === null) {
+    throw new Error(`${id}: a review stage needs an implement stage before it or a pr to review`);
   }
 
-  // The section runs to the next level-2 heading, so the snapshot may use ### and deeper.
-  const section = match[2].match(/^## Issue\n([\s\S]*?)(?=^## |(?![\s\S]))/m);
+  // The section ends at the expected outcome, not at the next heading, so the issue's own headings stay in it.
+  const section = match[2].match(/^## Issue\n([\s\S]*?)(?=^## Expected outcome$|(?![\s\S]))/m);
   const snapshot = section?.[1].trim();
   if (!snapshot) throw new Error(`${id}: missing ## Issue section`);
   const [first, ...rest] = snapshot.split("\n");
+  // TL-14 fences the body, with more backticks than the issue uses, so it reads as a quotation.
+  const body = rest.join("\n").trim();
+  const fenced = body.match(/^(`{3,})[^\n]*\n([\s\S]*?)\n\1$/);
   return {
     id,
     issue,
+    pr,
     base_sha,
     role,
     stages: stages as Role[],
     title: first.replace(/^#+\s*/, ""),
-    body: rest.join("\n").trim(),
+    body: fenced ? fenced[2].trim() : body,
   };
 }
 
