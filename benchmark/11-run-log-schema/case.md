@@ -9,7 +9,7 @@ checks:
 ---
 ## Issue
 
-Title: TL-11: Run log schema
+TL-11: Run log schema
 
 ````markdown
 **Outcome:** OUT-3 — Every run is measured

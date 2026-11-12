@@ -9,7 +9,7 @@ checks:
 ---
 ## Issue
 
-Title: Agent-made branches run CI with the target repository's secrets
+Agent-made branches run CI with the target repository's secrets
 
 ````markdown
 `scripts/run-issue.sh` pushes the agent's branch to the target repository itself and opens a same-repository PR. Workflows triggered by `push` or `pull_request` then run the branch's code (tests, package scripts) with the repository's secrets and network access. The script refuses changes under `.github/`, but an agent following a prompt-injected issue can still change a test or a `package.json` script that CI runs.

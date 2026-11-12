@@ -9,7 +9,7 @@ checks:
 ---
 ## Issue
 
-Title: Test that the chain ends at in-review
+Test that the chain ends at in-review
 
 ````markdown
 Add a test to `platform/queue/queue.test.ts` that the last stage in `STAGES` hands off to `in-review`, so the chain always ends with a human.

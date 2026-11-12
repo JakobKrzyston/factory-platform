@@ -9,7 +9,7 @@ checks:
 ---
 ## Issue
 
-Title: TL-4: Run one agent non-interactively from a script
+TL-4: Run one agent non-interactively from a script
 
 ````markdown
 **Outcome:** OUT-2 — One factory turns a labelled issue into a reviewed pull request unattended

@@ -9,7 +9,7 @@ checks:
 ---
 ## Issue
 
-Title: TL-5: Quality gates the agent cannot skip
+TL-5: Quality gates the agent cannot skip
 
 ````markdown
 **Outcome:** OUT-2 — One factory turns a labelled issue into a reviewed pull request unattended

@@ -19,7 +19,7 @@ The case format was agreed before this stage, because TL-15's harness, built in 
 - `pr` may be empty only when the stages stop before `implement`. #55 is the one such case: its only PR was closed unmerged.
 - `checks` is one `bash` line, required with `implement` and empty otherwise. A triage, spec or review stage produces a comment, and a command cannot judge a comment.
 - `base_sha` is the merge-base with the `main` the PR merged into, not the PR's first parent. #29 and #47 merged `main` in mid-branch. Their first parent would add unrelated commits to the reference diff.
-- The issue snapshot sits in a four-backtick fence, because #41's body has its own code fence and the bodies could hold headings.
+- The issue snapshot is the title alone on the first line, which is the line TL-15 reads as the title. The body follows in a four-backtick fence, because #41's body has its own code fence and the bodies could hold headings.
 - A review-only case uses the issue body as its spec. No case has a factory-written spec except #52 and #55, and their cases replay from triage.
 
 **#55's expected outcome is broader than the brief suggested.** The brief treated #55 as a case whose right outcome is a question, since the factory's first triage run asked one. The owner's answer, though, was that the narrower test was wanted, which the issue already allowed. So either the question or a note that names the existing test passes the case. What fails it is not noticing the existing test.

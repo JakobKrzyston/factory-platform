@@ -9,7 +9,7 @@ checks: pnpm typecheck && pnpm lint && pnpm test && sed -i.orig 's/"factory:revi
 ---
 ## Issue
 
-Title: Test that factory.yml's stage labels match STAGES
+Test that factory.yml's stage labels match STAGES
 
 ````markdown
 The `run` job in `.github/workflows/factory.yml` lists the labels that queue a role (`factory:ready`, `factory:spec`, `factory:implement`, `factory:review`). That list is copied by hand from `STAGES` in `platform/queue/queue.ts`, and a comment says to change both together. Nothing checks it.

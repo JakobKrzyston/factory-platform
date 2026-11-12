@@ -35,7 +35,7 @@ Each case is `benchmark/<issue>-<slug>/case.md`. TL-15's harness reads it, so a 
 
 The body has two sections:
 
-- `## Issue`: a line `Title: <title>`, then the issue's body verbatim inside a four-backtick `markdown` fence. Issues get edited, and this is the text the factory would have seen. The fence keeps the body's own headings and code blocks from being read as the case's. None of the ten issues had been edited, according to GitHub's edit history, so each snapshot is the issue as filed. A replay that starts at `spec` or later gets no triage note or spec comments, because none of these cases has a factory-written one to replay from. Review-only cases (`stages: review`) use the issue body as their spec, and review the reference PR's diff.
+- `## Issue`: the issue's title alone on the first line, then its body verbatim inside a four-backtick `markdown` fence. A replay takes the fence's contents as the body, not the fence itself. Issues get edited, and this is the text the factory would have seen. The fence keeps the body's own headings and code blocks from being read as the case's. None of the ten issues had been edited, according to GitHub's edit history, so each snapshot is the issue as filed. A replay that starts at `spec` or later gets no triage note or spec comments, because none of these cases has a factory-written one to replay from. Review-only cases (`stages: review`) use the issue body as their spec, and review the reference PR's diff.
 - `## Expected outcome`: in plain words, what each replayed stage should produce, and what counts as a miss. For triage, spec and review, the output is a comment, so this section is what a scorer or a reader judges it against.
 
 ## How the cases were chosen

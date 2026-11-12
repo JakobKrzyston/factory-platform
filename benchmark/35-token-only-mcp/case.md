@@ -9,7 +9,7 @@ checks:
 ---
 ## Issue
 
-Title: Token-only Throughline access before unattended agents get the MCP tools
+Token-only Throughline access before unattended agents get the MCP tools
 
 ````markdown
 TL-3 gives Claude Code sessions in this repository Throughline's MCP tools (`get_requirement`, `propose_link`). To reach the private instance, a client sends the MCP token and the Vercel Protection Bypass secret.

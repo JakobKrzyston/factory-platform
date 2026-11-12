@@ -9,7 +9,7 @@ checks: bash -n scripts/run-issue.sh && pnpm typecheck && pnpm lint && pnpm test
 ---
 ## Issue
 
-Title: run-issue.sh: time limit leaves child processes running; clones are never removed
+run-issue.sh: time limit leaves child processes running; clones are never removed
 
 ````markdown
 Two loose ends in `scripts/run-issue.sh`, both harmless for one manual run and real once TL-6 runs it in a loop:

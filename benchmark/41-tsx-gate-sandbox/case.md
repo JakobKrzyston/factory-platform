@@ -9,7 +9,7 @@ checks:
 ---
 ## Issue
 
-Title: Quality gate: tsx cannot run inside the checks' sandbox
+Quality gate: tsx cannot run inside the checks' sandbox
 
 ````markdown
 TL-5's stop hook runs each check under `srt` with no network. `srt` treats Unix domain sockets as network, so it blocks them. `tsx` opens one for IPC with its child processes, so any check that runs `tsx` fails inside the gate. This repository's `test` script is `tsx --test "platform/**/*.test.ts"`, so the factory can never pass the gate here. A run on this repository ends at `factory:needs-human` ("ended without a pull request") instead of `factory:in-review`, whatever the agent did.

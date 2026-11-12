@@ -9,7 +9,7 @@ checks:
 ---
 ## Issue
 
-Title: Health check for the GitHub-to-Throughline webhook
+Health check for the GitHub-to-Throughline webhook
 
 ````markdown
 The pull request reconciliation stage (note \`docs/notes/02-pr-reconciliation.md\`) failed silently four times before it worked: three 401s from Vercel Authentication and one bad signature. None of them showed in the Vercel logs, because protection rejects the request before the function runs. GitHub's Recent Deliveries was the only place they appeared.
