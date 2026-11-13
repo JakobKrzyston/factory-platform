@@ -2,92 +2,111 @@
 
 A software factory built in the open, one measured stage at a time.
 
-A software factory takes a labelled issue and returns a reviewed pull request without a person watching: a triage agent sizes the work, a spec agent plans it, an implementer builds it behind type, lint and test gates, and a reviewer with a fresh context checks the diff. This repository is the factory, the platform under it, and the record of what each stage cost and changed.
+![A ticket enters a conveyor, passes four stations, and reaches a person who approves it; every station writes to a ledger that loops back to the line](docs/img/factory-line.jpg)
 
-It is also the factory's own first customer. Every requirement below is a ticket the factory will eventually work, and the roadmap is kept by [Throughline](https://github.com/JakobKrzyston/throughline-roadmap), which reconciles the plan against each merged pull request.
+A software factory takes a labelled GitHub issue and returns a reviewed pull request without a person watching. This repository is the factory, the shared platform under it (queue, gates, run log, benchmark), and the record of what each stage cost and changed. It is also its own first customer: every requirement in the plan is a ticket the factory will eventually work.
 
-## What is here
+## How it works
 
+Add `factory:ready` to an issue. Four agents run in turn, each a separate, confined headless Claude Code call on a fresh GitHub Actions runner, and each success adds the label that starts the next.
+
+```mermaid
+flowchart LR
+    I([Issue]) -->|factory:ready| T[Triage<br/>Haiku]
+    T -->|factory:spec| S[Spec<br/>Sonnet]
+    S -->|factory:implement| M[Implement<br/>Sonnet]
+    M -->|factory:review| R[Review<br/>Sonnet]
+    R -->|factory:in-review| H{{Human merges}}
+
+    G1[/"Gate: typecheck, lint, tests,<br/>PR states risk and evidence"/] -.-> M
+    G2[/"Gate: every finding<br/>cites a rule"/] -.-> R
+    T & S & M & R -.->|question or failure| N([factory:needs-human])
 ```
-platform/      shared by every factory: the work queue, run log, dashboard, gate runner, replay harness, scorers, health checks and MCP gateway
-factories/     one directory per factory; copy one to create a factory, move folders to split one
-  code/        the first factory: agents/, triggers/, scorers/, skills/
-benchmark/     past issues with expected outcomes, replayed to judge any factory change
-standards/     review comments turned into rules the review agent applies
-docs/          roadmap.ts (the source of truth), PLAN.md (rendered from it), ARCHITECTURE.md, notes/
-scripts/       run-issue.sh, render-plan.ts and the other one-command entry points
+
+- **Triage** sizes the work, **spec** plans it, **implement** opens a draft PR, **review** comments on it having seen only the spec and the diff.
+- A role that hits a question stops at `factory:needs-human` with a comment. Answer it and re-add the label.
+- The factory can open a PR but can never approve or merge one.
+
+## The layers
+
+```mermaid
+flowchart TB
+    subgraph F["factories/ — definitions only (Markdown and YAML)"]
+        A[agents] ~~~ TR[triggers] ~~~ SC[scorers] ~~~ SK[skills]
+    end
+    subgraph P["platform/ — code shared by every factory"]
+        Q[queue] ~~~ GA[gates] ~~~ RL[run log] ~~~ D[dashboard] ~~~ B[bench]
+    end
+    subgraph E["evidence"]
+        BM[benchmark/] ~~~ ST[standards/] ~~~ NT[docs/notes/]
+    end
+    F -->|run by| P
+    P -->|a row per run| E
+    E -.->|meta-factory proposes changes,<br/>the benchmark must agree| F
 ```
 
-Most of these directories are empty on purpose. The plan says what goes in each and in which order.
+Creating a factory is copying a directory under `factories/`. Nothing in `platform/` names an agent or a factory.
 
-## Run one issue
+## Key design decisions
+
+Each is argued in full, with what was rejected, in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
+
+| Decision | Why |
+| --- | --- |
+| **Humans merge.** Two rulesets on `main` and a factory GitHub App with no approve or merge rights. | Automated review is advice. `pnpm check-merge-gate` proves the App is refused. |
+| **The queue is GitHub issue labels.** | State is visible in the issue timeline and needs no service to run. |
+| **A run is one confined agent.** Temporary clone, OS sandbox, no network, no git or GitHub access; the script commits and opens the PR. | Nobody is there to answer a permission prompt, and the output lands in a public PR. |
+| **Guidance plus gates.** Prompts and skills make good output likely; Stop hooks make bad output impossible to hand in. | Hooks run outside the model, so they cannot be talked out of. |
+| **The reviewer gets a fresh context.** Only the spec and the diff: no issue thread, no PR description, no transcript. | The author's account of a change should not steer its review. |
+| **Review comments become rules.** Human comments are collected weekly; a person promotes each to `standards/rules.md`, and the reviewer must cite them. | The factory learns the repository's habits, but only ones a person chose. |
+| **Every run is a row.** Factory, role, model, tokens, cost, wall time, checks, findings, rework. | A change is judged by numbers, and the dashboard is a static page over that table. |
+| **Benchmark before belief.** Past issues from this repository, replayed against any factory version and scored. | One good result proves nothing about a prompt, model or gate. |
+| **Factories are data.** An agent names a contract (`note`, `spec`, `pull-request`, `review`) that fixes its inputs, gate and output together. | A definition, which the meta-factory may edit, cannot open a PR with no gate. |
+| **One idea per stage.** | If two ideas land together, the log cannot tell them apart. |
+
+## Status
+
+| Stage | Idea | |
+| --- | --- | --- |
+| 1 | One run: one agent, one issue, one PR (TL-4) | built |
+| 2 | Gates the agent cannot skip (TL-5) | built |
+| 3 | Label queue and human merge gate (TL-6, TL-10) | built |
+| 4 | Separate roles, self-explaining PRs, standing rules (TL-7 to TL-9) | built |
+| 5 | Run log and dashboard (TL-11 to TL-13) | built |
+| 6 | Benchmark, replay harness, scorers (TL-14 to TL-16) | built |
+| 7 | Extract: factories as directories on a shared platform (TL-17 to TL-21) | in progress |
+| 8 | Meta-factory: proposes factory changes, must beat the benchmark (TL-22 to TL-24) | planned |
+
+The plan with acceptance criteria is [`docs/PLAN.md`](docs/PLAN.md), rendered from [`docs/roadmap.ts`](docs/roadmap.ts) and reconciled against merged PRs by [Throughline](https://github.com/JakobKrzyston/throughline-roadmap). Each stage ends with a note in [`docs/notes/`](docs/notes/): what was expected, what happened, what the numbers said.
+
+## Try it
+
+Needs macOS, Node 22, pnpm, `claude`, `gh` (logged in), `git`, `jq` and `perl`.
 
 ```sh
-pnpm install                 # the stop hook and its sandbox run from this checkout
+pnpm install
 cp .env.example .env.local   # set ANTHROPIC_API_KEY
-scripts/run-issue.sh <agent> https://github.com/<owner>/<repo>/issues/<n>   # the code factory's: triage, spec, implement, review
+
+# run one agent on one issue: triage, spec, implement or review
+scripts/run-issue.sh <agent> https://github.com/<owner>/<repo>/issues/<n>
+
+pnpm dashboard                    # cost, time, gate pass rate and rework, from the run log
+pnpm bench <factory> <git-ref>    # replay the benchmark against a factory version
+pnpm standards collect            # gather last week's human review comments as draft rules
 ```
 
-Needs macOS, Node 22, `claude`, `gh` (logged in), `git`, `jq` and `perl`. The agent's contract, model, tools, budget and prompt come from `factories/code/agents/<agent>/agent.md` (`FACTORY=<name>` picks another factory); its contract, not its name, decides what it is given and where its answer goes (`factories/README.md`). The agent works in a temporary clone with no network and no access outside it. Triage and spec print their note or spec; review posts its findings on the issue's open factory PR, having seen only the spec and the diff. For implement, a stop hook keeps the agent working while the repository's `typecheck`, `lint` or `test` script fails, or while its final message, which becomes the PR description, lacks the template's Risk or Evidence. The script opens a draft PR only when those checks passed. If the hook gave up refusing an incomplete description, the PR still opens and the script exits 4 with the PR's URL and what is missing. Every run is recorded in `.runlog/runs/` and as a row in the run log (`.runlog/runlog.db`, or Postgres when `DATABASE_URL` is set). [factory-sample](https://github.com/JakobKrzyston/factory-sample) is the practice repository.
+To queue work on GitHub Actions instead, run `pnpm queue setup <owner/repo>` once and add `factory:ready` to an issue. [factory-sample](https://github.com/JakobKrzyston/factory-sample) is the practice repository.
 
-## Queue an issue
+## Where things are
 
-Add the `factory:ready` label to an issue in this repository. `.github/workflows/factory.yml` runs the same script on GitHub Actions runners, once per role, and each role that succeeds adds the label that starts the next: `factory:ready` (triage), `factory:spec`, `factory:implement`, `factory:review`, then `in-review` with a draft PR and the reviewer's findings on it. A role that stops with a question moves the issue to `needs-human` with a comment. Answer in a comment and add that role's label again. A PR whose description is incomplete also stops at `needs-human`, before the reviewer runs: fill it in on the PR, then add `factory:review`, or merge it. Setup, once per repository: `pnpm queue setup <owner/repo>` and four secrets, described in [`platform/queue/README.md`](platform/queue/README.md).
-
-## See what the runs cost
-
-```sh
-pnpm dashboard               # writes .runlog/dashboard.html from the run log
-```
-
-Cost per PR, time per stage, gate pass rates and rework rate, per factory and per week, then the benchmark's scores per factory version. What each number means is in [`platform/dashboard/README.md`](platform/dashboard/README.md).
-
-## Benchmark a factory version
-
-```sh
-pnpm bench <factory> <git-ref> [--case <id>] [--max-usd <n>]
-```
-
-Replays every case under `benchmark/` through `factories/<factory>/` as it was at `<git-ref>`, in a clone of its own, scores each stage with the files under `factories/<factory>/scorers/`, and prints each stage's outcome, checks, cost, wall time and scores. A replay reads nothing from GitHub and writes nothing to it, and its rows in the run log are marked `benchmark`, so the dashboard's production charts leave them out; their scores have a section of their own. `--max-usd` (default 10) stops starting runs once the benchmark has spent that much. See [`platform/bench/README.md`](platform/bench/README.md).
-
-## Turn review comments into rules
-
-`pnpm standards collect` appends every new human review comment from the last week's merged PRs to `standards/draft.md`. Promote each entry to `standards/rules.md` or reject it in `standards/rejected.md`. The review agent gets those rules in its prompt and cites them by ID. Its Stop hook, and then the script, refuse a review whose findings cite nothing. See [`standards/README.md`](standards/README.md).
-
-## The five parts of a factory
-
-Every factory here, and the ones at Warp and in Matt Pocock's course, has the same parts:
-
-| Part    | What it is                                                | Here                                       |
-| ------- | --------------------------------------------------------- | ------------------------------------------ |
-| Queue   | Where work waits and where its state lives                | GitHub issue labels (`factory:*`)          |
-| Workers | Agents with one role each and their own context           | `factories/<name>/agents/<role>/agent.md`  |
-| Gates   | Checks that decide whether work moves forward             | Claude Code hooks running typecheck, lint, tests |
-| Log     | What each run cost and produced                           | `platform/runlog` (SQLite locally, Neon in the cloud) |
-| Loop    | Something that reads the log and changes the factory      | The meta-factory, gated by the benchmark   |
-
-## Order of work
-
-1. **One run** (TL-4): a script that gives one agent one issue and gets one PR back. The baseline.
-2. **Gates** (TL-5): hooks that stop the agent finishing while a check fails.
-3. **Queue** (TL-6, TL-10): a GitHub Action fired by a label, with labels as the state machine and a human merge gate.
-4. **Roles** (TL-7, TL-8, TL-9): separate triage, spec, implement and review agents; PRs that explain themselves; review comments that become rules.
-5. **Log** (TL-11 to TL-13): a row per run and a dashboard of cost, time, gate pass rate and rework.
-6. **Benchmark** (TL-14 to TL-16): the factory's own closed issues, replayable against any version, scored automatically.
-7. **Extract** (TL-17 to TL-21): the factory becomes a directory; a second factory is a copy; splitting is moving folders.
-8. **Meta-factory** (TL-22 to TL-24): an agent that proposes factory changes from the log and must beat the benchmark to merge.
-
-Each stage adds one idea, so the log shows what that idea did on its own. Stages 1 to 4 are roughly what the course teaches; 5 and 6 are Warp's contribution; 7 and 8 are this project's.
-
-Full detail, with acceptance criteria, is in [`docs/PLAN.md`](docs/PLAN.md). The plan is rendered from [`docs/roadmap.ts`](docs/roadmap.ts), which is also what seeds the Throughline roadmap and the issue tracker, so the three never disagree.
-
-## Rules
-
-- **Humans merge.** No factory PR merges without a human approval, whatever the automated review said.
-- **Change one thing per stage.** If two ideas land together, the numbers cannot tell them apart.
-- **Write the note.** Every stage ends with a short note in `docs/notes/`: what was expected, what happened, what the log showed.
-- **Guidance plus gates.** A prompt or skill makes good behaviour likely; a hook or check makes bad output impossible to hand in. Every stage needs both.
-- **Factories are data.** Anything under `factories/` is a definition, validated in CI, and is the only thing the meta-factory may edit.
+| Path | What | Read |
+| --- | --- | --- |
+| `factories/` | One directory per factory: agents, triggers, scorers, skills | [`factories/README.md`](factories/README.md) |
+| `platform/` | Queue, gates, run log, dashboard, bench, scorers, health checks, MCP gateway | [`platform/README.md`](platform/README.md) |
+| `benchmark/` | Past issues with expected outcomes | [`benchmark/README.md`](benchmark/README.md) |
+| `standards/` | Rules the review agent applies | [`standards/README.md`](standards/README.md) |
+| `scripts/` | `run-issue.sh` and the other one-command entry points | |
+| `docs/` | Roadmap, plan, architecture, stage notes | |
 
 ## Credits
 
