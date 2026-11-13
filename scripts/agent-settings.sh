@@ -35,10 +35,10 @@ install_dir() {
 }
 
 # Prints the settings.json for one agent run. Bash runs in the OS sandbox: writes only inside the clone, no reads
-# of the owner's home directory, other than the installs install_dir names, or of the key, and no network. The
+# of the owner's home directory, other than the installs install_dir names, or of the key, and no network. A
 # reviewer may not read the git metadata either: the PR's commit message holds the issue's title, and other
 # factory branches hold earlier attempts.
-# Args: $1: the role; $2: the key's directory; $3: the parent of the clone's git directory; $4: the hooks, as JSON.
+# Args: $1: the agent's contract (platform/agents/agent.ts); $2: the key's directory; $3: the parent of the clone's git directory; $4: the hooks, as JSON.
 agent_settings() {
   local deny=("Read(~/**)" "Read(/$2/**)") allow=() tool dir
   if [[ $1 == review ]]; then deny+=("Read(/$3/**)"); fi

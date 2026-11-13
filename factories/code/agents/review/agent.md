@@ -1,5 +1,6 @@
 ---
 description: Reviews a factory pull request against its spec, from a clean checkout, without the author's context.
+contract: review
 model: sonnet
 tools: Bash, Read
 budget_usd: 2

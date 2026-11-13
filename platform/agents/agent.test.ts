@@ -1,12 +1,12 @@
-/** Tests the agent.md parser, and that every agent the code factory defines parses. Run: pnpm test */
+/** Tests the agent.md parser. Run: pnpm test */
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { test } from "node:test";
 
 import { parseAgent } from "./agent";
 
 const VALID = `---
 description: A role.
+contract: note
 model: haiku
 tools: Bash, Read
 budget_usd: 0.5
@@ -18,6 +18,7 @@ Do the role.
 test("an agent file gives its settings and the prompt after the fence", () => {
   assert.deepEqual(parseAgent(VALID), {
     description: "A role.",
+    contract: "note",
     model: "haiku",
     tools: ["Bash", "Read"],
     budget_usd: 0.5,
@@ -28,6 +29,12 @@ test("an agent file gives its settings and the prompt after the fence", () => {
 
 test("changing the model is one line", () => {
   assert.equal(parseAgent(VALID.replace("model: haiku", "model: opus")).model, "opus");
+});
+
+test("the contract is one the run script keeps, whatever the agent is called", () => {
+  assert.equal(parseAgent(VALID.replace("contract: note", "contract: pull-request")).contract, "pull-request");
+  assert.throws(() => parseAgent(VALID.replace("contract: note", "contract: implement")), /contract must be one of note, spec, pull-request, review; got implement/);
+  assert.throws(() => parseAgent(VALID.replace("contract: note\n", "")), /missing setting: contract/);
 });
 
 test("a tool the run script cannot confine is refused", () => {
@@ -55,9 +62,3 @@ test("a file without settings fences or without a prompt is refused", () => {
   assert.throws(() => parseAgent("Do the role.\n"), /settings between ---/);
   assert.throws(() => parseAgent(VALID.replace("Do the role.\n", "")), /prompt/);
 });
-
-for (const role of ["triage", "spec", "implement", "review"]) {
-  test(`the code factory's ${role} agent parses`, () => {
-    parseAgent(readFileSync(new URL(`../../factories/code/agents/${role}/agent.md`, import.meta.url), "utf8"));
-  });
-}

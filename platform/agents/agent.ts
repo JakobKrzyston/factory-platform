@@ -1,6 +1,6 @@
-/** Reads a factory's agent definition, `factories/<name>/agents/<role>/agent.md`: settings as `key: value`
- *  lines between `---` fences, then the role's system prompt. Exports parseAgent and TOOLS; run as a CLI by
- *  run-issue.sh, it prints the definition as JSON.
+/** Reads a factory's agent definition, `factories/<name>/agents/<agent>/agent.md`: settings as `key: value`
+ *  lines between `---` fences, then the agent's system prompt. Exports parseAgent, TOOLS and CONTRACTS; run as a
+ *  CLI by run-issue.sh, it prints the definition as JSON.
  *
  *  tsx platform/agents/agent.ts <agent.md> */
 import { readFileSync } from "node:fs";
@@ -11,9 +11,18 @@ import { pathToFileURL } from "node:url";
  *  is refused rather than run. */
 export const TOOLS = ["Bash", "Edit", "Read", "Write"] as const;
 
-/** One role's settings and prompt. */
+/** The platform's contracts with an agent (TL-18): what run-issue.sh gives it, how its answer is gated and
+ *  where the answer goes. An agent names one, so the script never needs to know the agent's name.
+ *    note          the issue and its comments; prints the answer, which the queue posts on the issue
+ *    spec          as note, with the answer headed by the spec marker a review contract finds it by
+ *    pull-request  as note, with the checks and description gate; opens a draft PR
+ *    review        the latest spec and the PR's diff only; citation gate; comments on the PR */
+export const CONTRACTS = ["note", "spec", "pull-request", "review"] as const;
+
+/** One agent's settings and prompt. */
 export type Agent = {
   description: string;
+  contract: (typeof CONTRACTS)[number];
   model: string;
   tools: (typeof TOOLS)[number][];
   budget_usd: number;
@@ -26,8 +35,8 @@ export type Agent = {
  *  Args:
  *    text: the file's contents.
  *  Returns: the agent's settings and its prompt, the text after the closing fence.
- *  Raises: if the fences are missing, a setting is missing, unknown or invalid, a tool is not in TOOLS,
- *  Read is not among the tools, or the prompt is empty. */
+ *  Raises: if the fences are missing, a setting is missing, unknown or invalid, the contract is not in
+ *  CONTRACTS, a tool is not in TOOLS, Read is not among the tools, or the prompt is empty. */
 export function parseAgent(text: string): Agent {
   const match = text.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
   if (!match) throw new Error("agent.md must start with settings between --- lines");
@@ -38,7 +47,7 @@ export function parseAgent(text: string): Agent {
     settings.set(key, value);
   }
 
-  const known = ["description", "model", "tools", "budget_usd", "time_limit_seconds"];
+  const known = ["description", "contract", "model", "tools", "budget_usd", "time_limit_seconds"];
   const unknown = [...settings.keys()].filter((key) => !known.includes(key));
   if (unknown.length > 0) throw new Error(`unknown settings: ${unknown.join(", ")}`);
   const required = (key: string) => {
@@ -56,16 +65,20 @@ export function parseAgent(text: string): Agent {
   const seconds = positive("time_limit_seconds");
   if (!Number.isInteger(seconds)) throw new Error("time_limit_seconds must be a whole number");
 
+  const contract = required("contract");
+  if (!(CONTRACTS as readonly string[]).includes(contract)) throw new Error(`contract must be one of ${CONTRACTS.join(", ")}; got ${contract}`);
+
   const tools = required("tools").split(",").map((tool) => tool.trim());
   const unconfined = tools.filter((tool) => !(TOOLS as readonly string[]).includes(tool));
   if (unconfined.length > 0) throw new Error(`tools must be among ${TOOLS.join(", ")}; got ${unconfined.join(", ")}`);
-  // Every role is handed a clone to read, and run-issue.sh's allowed-tools list starts from Read.
+  // Every agent is handed a clone to read, and run-issue.sh's allowed-tools list starts from Read.
   if (!tools.includes("Read")) throw new Error("tools must include Read");
   const prompt = match[2].trim();
   if (!prompt) throw new Error("the prompt after the settings is empty");
 
   return {
     description: required("description"),
+    contract: contract as Agent["contract"],
     model: required("model"),
     tools: tools as Agent["tools"],
     budget_usd: positive("budget_usd"),

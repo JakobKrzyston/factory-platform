@@ -1,20 +1,21 @@
 #!/usr/bin/env bash
 # Run one of the factory's agents on one GitHub issue, unattended.
 #
-# Usage: scripts/run-issue.sh <triage|spec|implement|review> https://github.com/<owner>/<repo>/issues/<n>
+# Usage: scripts/run-issue.sh <agent> https://github.com/<owner>/<repo>/issues/<n>
 #
-# The role's model, tools, budget, time limit and prompt come from its definition,
-# factories/$FACTORY/agents/<role>/agent.md (TL-7). What the role is given and what
-# becomes of its answer is this script's:
-#   triage     the issue and its comments; prints a triage note
-#   spec       the issue and its comments; prints the spec, marked for the roles after it
-#   implement  the issue and its comments, spec included; commits, pushes, opens a
-#              draft PR and prints its URL
-#   review     the spec and the PR's diff only, in a clean checkout of the PR's head;
-#              posts the review on the PR and prints the PR's URL
+# The agent's model, tools, budget, time limit and prompt come from its definition,
+# factories/$FACTORY/agents/<agent>/agent.md (TL-7), followed by each skill under
+# that agent's skills/ folder. What the agent is given and what becomes of its answer
+# is this script's, chosen by the definition's contract (TL-18), never by its name:
+#   note          the issue and its comments; prints the answer
+#   spec          the issue and its comments; prints the spec, marked for a review after it
+#   pull-request  the issue and its comments, spec included; commits, pushes, opens a
+#                 draft PR and prints its URL
+#   review        the spec and the PR's diff only, in a clean checkout of the PR's head;
+#                 posts the review on the PR and prints the PR's URL
 #
 # The agent works in a fresh clone and can only read and write that clone and run
-# sandboxed shell commands; it cannot reach GitHub. For implement, a stop hook refuses
+# sandboxed shell commands; it cannot reach GitHub. For pull-request, a stop hook refuses
 # to let it finish while the repository's typecheck, lint or test script fails. Each
 # run is recorded under .runlog/runs/<run-id>/ and as a row in the run log
 # (platform/runlog/): Postgres when DATABASE_URL is set, otherwise SQLite in .runlog/.
@@ -23,29 +24,30 @@
 # Set REPLAY to a JSON file to replay a benchmark case instead (TL-15; platform/bench/
 # writes it): the clone is fetched from the local repository `source` at `base_sha`,
 # with no later commits; the issue (`title`, `body`) and its `comments` come from the file, and a
-# review reviews `patch`, an implement run's changes.patch, committed onto the base. A
-# replay reads nothing from GitHub and writes nothing to it: implement prints the path
+# review reviews `patch`, a pull-request run's changes.patch, committed onto the base. A
+# replay reads nothing from GitHub and writes nothing to it: pull-request prints the path
 # of its changes.patch and review the path of its review.md instead of publishing them,
 # and the run's row is marked benchmark.
 #
 # Exit status: 0 with the role's output on stdout; 3 with the agent's question on
-# stdout when it stopped to ask one; 4, from implement only, when the PR opened
+# stdout when it stopped to ask one; 4, from pull-request only, when the PR opened
 # but its description still lacks its risk or evidence after the stop hook gave
 # up refusing it (TL-8), with the PR's URL on the first line of stdout and one
-# problem per line after it; anything else means the role failed.
+# problem per line after it; anything else means the agent failed.
 set -euo pipefail
 
 FACTORY=${FACTORY:-code}
 REPLAY=${REPLAY:-}
 PERMISSION_MODE=dontAsk
-# The first line of the spec comment; the review role finds the spec by it.
+# The first line of the spec comment; a review finds the spec by it.
 SPEC_MARKER='<!-- factory:spec -->'
 
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 
-if [[ $# -ne 2 || ! $1 =~ ^(triage|spec|implement|review)$ \
+# Folder names, so neither can lead the definition's path out of factories/.
+if [[ $# -ne 2 || ! $1 =~ ^[A-Za-z0-9][A-Za-z0-9_-]*$ || ! $FACTORY =~ ^[A-Za-z0-9][A-Za-z0-9_-]*$ \
       || ! $2 =~ ^https://github\.com/([^/]+/[^/]+)/issues/([0-9]+)$ ]]; then
-  echo "usage: $0 <triage|spec|implement|review> https://github.com/<owner>/<repo>/issues/<n>" >&2
+  echo "usage: [FACTORY=<factory>] $0 <agent> https://github.com/<owner>/<repo>/issues/<n>" >&2
   exit 2
 fi
 ROLE=$1
@@ -107,14 +109,23 @@ if [[ $AGENT == null ]]; then
   echo "run: $AGENT_FILE is not a valid agent definition" >&2
   exit 1
 fi
+CONTRACT=$(jq -r .contract <<<"$AGENT")
 TIME_LIMIT_SECONDS=$(jq -r .time_limit_seconds <<<"$AGENT")
 BUDGET_USD=$(jq -r .budget_usd <<<"$AGENT")
 TOOLS=$(jq -r '.tools | join(",")' <<<"$AGENT")
 SYSTEM=$(jq -r .prompt <<<"$AGENT")
-# Implement's final message becomes the PR description, which its stop hook
-# checks (TL-8), so the platform hands it the skill and template the check
-# enforces rather than trusting each definition to quote them.
-if [[ $ROLE == implement ]]; then
+# The agent's own skills, in name order. The awk drops a skill's front matter, if it has any.
+for SKILL in "$ROOT/factories/$FACTORY/agents/$ROLE/skills"/*/SKILL.md; do
+  if [[ -f $SKILL ]]; then
+    SYSTEM+="
+
+$(awk 'NR == 1 && /^---$/ { front = 1; next } front && /^---$/ { front = 0; next } !front' "$SKILL")"
+  fi
+done
+# A pull-request agent's final message becomes the PR description, which its stop
+# hook checks (TL-8), so the platform hands it the factory's skill and the template
+# the check enforces rather than trusting each definition to quote them.
+if [[ $CONTRACT == pull-request ]]; then
   SYSTEM+="
 
 Write the pull request description as this skill says:
@@ -124,13 +135,11 @@ $(cat "$ROOT/factories/$FACTORY/skills/pr-description/SKILL.md")
 The pull request template:
 
 $(cat "$ROOT/.github/pull_request_template.md")"
-# The reviewer works in a clone of the target repository, which has no standards/,
-# so the standing rules and how to cite them go into its prompt (TL-9). The awk
-# drops the skill's front matter.
-elif [[ $ROLE == review ]]; then
+# A reviewer works in a clone of the target repository, which has no standards/,
+# so the standing rules its citation gate checks go into its prompt (TL-9). How to
+# cite them is the agent's own skill.
+elif [[ $CONTRACT == review ]]; then
   SYSTEM+="
-
-$(awk 'fences >= 2; /^---$/ { fences++ }' "$ROOT/factories/$FACTORY/agents/review/skills/cite-standards/SKILL.md")
 
 $(cat "$ROOT/standards/rules.md")"
 fi
@@ -186,13 +195,13 @@ else
 fi
 COMMENTS=$(jq -r 'map("\(.user.login) commented:\n\n\(.body)") | join("\n\n---\n\n")' <<<"$TRUSTED_COMMENTS")
 
-# The reviewer reviews the newest open PR the implement role opened for this
-# issue, at the commit listed here, against the latest spec. A replay's PR is its
-# patch, committed below.
-if [[ $ROLE == review && -n $REPLAY ]]; then
+# A reviewer reviews the newest open PR the factory opened for this issue, at the
+# commit listed here, against the latest spec. A replay's PR is its patch,
+# committed below.
+if [[ $CONTRACT == review && -n $REPLAY ]]; then
   PR_URL=
   PR_BASE=$BASE
-elif [[ $ROLE == review ]]; then
+elif [[ $CONTRACT == review ]]; then
   PR=$(gh pr list --repo "$REPO" --state open --limit 100 \
       --json url,headRefName,headRefOid,baseRefName,createdAt,isCrossRepository \
     | jq -c --arg prefix "factory/issue-$NUMBER-" '[.[] | select((.isCrossRepository | not)
@@ -205,7 +214,7 @@ elif [[ $ROLE == review ]]; then
   PR_HEAD=$(jq -r .headRefOid <<<"$PR")
   PR_BASE=$(jq -r .baseRefName <<<"$PR")
 fi
-if [[ $ROLE == review ]]; then
+if [[ $CONTRACT == review ]]; then
   SPEC=$(jq -r --arg marker "$SPEC_MARKER" \
     '[.[] | select(.body | startswith($marker))] | last | .body // ""' <<<"$TRUSTED_COMMENTS")
   if [[ -z $SPEC ]]; then
@@ -226,17 +235,17 @@ if [[ -f $WORKDIR/pnpm-lock.yaml ]]; then
 fi
 # Only after installing: the PR's head is agent-written, and pnpm runs a
 # .pnpmfile.cjs it finds even with --ignore-scripts, outside any sandbox.
-if [[ $ROLE == review && -n $REPLAY ]]; then
+if [[ $CONTRACT == review && -n $REPLAY ]]; then
   repo_git apply --index "$(jq -r .patch "$REPLAY")"
   repo_git -c user.name=bench -c user.email=bench@localhost commit --quiet -m "Replay of #$NUMBER"
   PR_HEAD=$(repo_git rev-parse HEAD)
   DIFF=$(repo_git diff HEAD~1 HEAD)
-elif [[ $ROLE == review ]]; then
+elif [[ $CONTRACT == review ]]; then
   # Fetched by commit: a push to the PR after the clone leaves the listed head out of it.
   repo_git fetch --quiet origin "$PR_HEAD"
   repo_git switch --quiet --detach "$PR_HEAD"
   DIFF=$(repo_git diff "origin/$PR_BASE...HEAD")
-elif [[ $ROLE == implement ]]; then
+elif [[ $CONTRACT == pull-request ]]; then
   repo_git switch --quiet -c "$BRANCH"
 fi
 jq -n --arg checkout "$WORKDIR" --arg run_dir "$RUN_DIR" --arg home "$HOME" --arg key_dir "$KEY_DIR" \
@@ -245,23 +254,24 @@ jq -n --arg checkout "$WORKDIR" --arg run_dir "$RUN_DIR" --arg home "$HOME" --ar
 
 # Bash runs in the OS sandbox (scripts/agent-settings.sh). The stop hook runs outside it,
 # and runs the checks in a sandbox of its own (platform/gates/checks.ts). It runs
-# from $ROOT so that tsx does not load the clone's tsconfig.json. Implement hands
-# in changes and is gated by the checks; review hands in findings and is gated by
-# their citations of the standing rules (TL-9), which run no code from the clone.
+# from $ROOT so that tsx does not load the clone's tsconfig.json. A pull-request
+# agent hands in changes and is gated by the checks; a reviewer hands in findings and
+# is gated by their citations of the standing rules (TL-9), which run no code from
+# the clone.
 HOOKS='{}'
-if [[ $ROLE == implement ]]; then
+if [[ $CONTRACT == pull-request ]]; then
   HOOKS=$(jq -n --arg command "cd \"$ROOT\" && node_modules/.bin/tsx platform/gates/stop-hook.ts \"$RUN_DIR/gate.json\"" \
     '{Stop: [{hooks: [{type: "command", command: $command, timeout: 600}]}]}')
-elif [[ $ROLE == review ]]; then
+elif [[ $CONTRACT == review ]]; then
   HOOKS=$(jq -n --arg command "cd \"$ROOT\" && node_modules/.bin/tsx platform/standards/standards.ts review-hook \"$RUN_DIR/gates.jsonl\"" \
     '{Stop: [{hooks: [{type: "command", command: $command, timeout: 60}]}]}')
 fi
 source "$ROOT/scripts/agent-settings.sh"
-agent_settings "$ROLE" "$KEY_DIR" "$GIT_PARENT" "$HOOKS" > "$RUN_DIR/settings.json"
+agent_settings "$CONTRACT" "$KEY_DIR" "$GIT_PARENT" "$HOOKS" > "$RUN_DIR/settings.json"
 
 # The reviewer gets the spec and the diff, and nothing the implementer saw or
 # said: not the issue, its comments or the PR's description.
-if [[ $ROLE == review ]]; then
+if [[ $CONTRACT == review ]]; then
   PROMPT="The spec:
 
 $SPEC
@@ -290,20 +300,20 @@ fi
 printf '%s\n' "$PROMPT" > "$RUN_DIR/prompt.md"
 
 jq -n \
-  --arg run_id "$RUN_ID" --arg run_log_id "$RUN_LOG_ID" --arg role "$ROLE" --arg issue "$ISSUE_URL" --arg repo "$REPO" \
+  --arg run_id "$RUN_ID" --arg run_log_id "$RUN_LOG_ID" --arg role "$ROLE" --arg contract "$CONTRACT" --arg issue "$ISSUE_URL" --arg repo "$REPO" \
   --arg base "$BASE" --arg branch "$BRANCH" --arg workdir "$WORKDIR" \
   --arg model "$MODEL" --argjson time_limit "$TIME_LIMIT_SECONDS" --argjson budget "$BUDGET_USD" \
   --arg tools "$TOOLS" --arg permission_mode "$PERMISSION_MODE" \
   --arg claude_version "$(claude --version)" --arg started_at "$(date -u +%FT%TZ)" \
   --slurpfile settings "$RUN_DIR/settings.json" \
-  '{run_id: $run_id, run_log_id: $run_log_id, role: $role, issue: $issue, repo: $repo, base: $base, branch: $branch,
+  '{run_id: $run_id, run_log_id: $run_log_id, role: $role, contract: $contract, issue: $issue, repo: $repo, base: $base, branch: $branch,
     working_directory: $workdir, model: $model, time_limit_seconds: $time_limit,
     budget_usd: $budget, tools: ($tools | split(",")), allowed_tools: $ARGS.positional,
     permission_mode: $permission_mode, settings: $settings[0],
     claude_version: $claude_version, started_at: $started_at}' \
   --args "${ALLOWED_TOOLS[@]}" > "$RUN_DIR/run.json"
 
-echo "run $RUN_ID: $ROLE agent working in $WORKDIR (limit ${TIME_LIMIT_SECONDS}s)" >&2
+echo "run $RUN_ID: $ROLE agent ($CONTRACT) working in $WORKDIR (limit ${TIME_LIMIT_SECONDS}s)" >&2
 
 # claude runs in its own process group, and the whole group is killed when claude
 # exits, when the time limit passes, or when this script is interrupted, so nothing
@@ -356,7 +366,7 @@ jq \
   --arg finished_at "$(date -u +%FT%TZ)" \
   '. + {finished_at: $finished_at, exit_code: $exit_code, timed_out: ($exit_code == 142),
         model_id: $model_id, files_changed: $files_changed, github_dir_changed: ($workflows_changed > 0),
-        checks_passed: (if .role == "implement" then ($gates | last | .passed // false) else null end),
+        checks_passed: (if .contract == "pull-request" then ($gates | last | .passed // false) else null end),
         checks: ($gates | last | .checks // []),
         description_problems: ($gates | last | .description_problems // []),
         gate_attempts: ($gates | length), gate_failures: ($gates | map(select((.passed | not) or ((.description_problems // []) | length > 0))) | length),
@@ -367,9 +377,9 @@ jq \
   "$RUN_DIR/run.json" > "$RUN_DIR/run.json.tmp" && mv "$RUN_DIR/run.json.tmp" "$RUN_DIR/run.json"
 
 SUMMARY=$(jq -r '.result // ""' <<<"$RESULT")
-# The reviewer never sees comments, so nobody could answer it a question; whatever
+# A reviewer never sees comments, so nobody could answer it a question; whatever
 # it says is its review.
-if [[ $ROLE != review && $STATUS -eq 0 && $SUMMARY == QUESTION:* ]]; then
+if [[ $CONTRACT != review && $STATUS -eq 0 && $SUMMARY == QUESTION:* ]]; then
   QUESTION=$(sed '1s/^QUESTION:[[:space:]]*//' <<<"$SUMMARY")
   jq --arg question "$QUESTION" '. + {question: $question}' "$RUN_DIR/run.json" > "$RUN_DIR/run.json.tmp" \
     && mv "$RUN_DIR/run.json.tmp" "$RUN_DIR/run.json"
@@ -380,25 +390,25 @@ if [[ $ROLE != review && $STATUS -eq 0 && $SUMMARY == QUESTION:* ]]; then
 fi
 
 if [[ $STATUS -ne 0 || $(jq -r '.result_subtype' "$RUN_DIR/run.json") != success \
-      || $(jq -r '.is_error' "$RUN_DIR/run.json") != false || ($ROLE != implement && -z $SUMMARY) ]]; then
+      || $(jq -r '.is_error' "$RUN_DIR/run.json") != false || ($CONTRACT != pull-request && -z $SUMMARY) ]]; then
   echo "run $RUN_ID: the $ROLE agent failed (exit $STATUS, result $(jq -r '.result_subtype' "$RUN_DIR/run.json")); see $RUN_DIR" >&2
   exit 1
 fi
 
-if [[ $ROLE == triage ]]; then
+if [[ $CONTRACT == note ]]; then
   printf '%s\n' "$SUMMARY"
   OUTCOME=done
   exit 0
 fi
 
-if [[ $ROLE == spec ]]; then
+if [[ $CONTRACT == spec ]]; then
   printf '%s\n\n%s\n' "$SPEC_MARKER" "$SUMMARY"
   OUTCOME=done
   exit 0
 fi
 
 # Posted as a comment, never as a review: the factory never approves (TL-10).
-if [[ $ROLE == review ]]; then
+if [[ $CONTRACT == review ]]; then
   # The stop hook gave the agent its chances; this is the check that decides. A
   # review whose findings do not each cite a standing rule is not posted (TL-9).
   printf '%s\n' "$SUMMARY" > "$RUN_DIR/review.md"
@@ -422,7 +432,7 @@ if [[ $ROLE == review ]]; then
 
 ---
 
-Reviewed unattended at \`$PR_HEAD\` by the factory's review agent, which saw only the spec and this diff. A human decides whether to merge.
+Reviewed unattended at \`$PR_HEAD\` by the factory's $ROLE agent, which saw only the spec and this diff. A human decides whether to merge.
 
 $(jq -r '"| Run | `\(.run_id)` |\n| --- | --- |\n| Model | \(.model_id) |\n| Turns | \(.num_turns) |\n| Agent time | \(.duration_ms / 1000 | floor)s |\n| Cost | $\(.cost_usd * 100 | round / 100) |"' "$RUN_DIR/run.json")"
   gh pr comment "$PR_URL" --body-file - <<<"$REVIEW_BODY" >/dev/null

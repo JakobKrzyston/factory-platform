@@ -1,5 +1,6 @@
 ---
 description: Turns a triaged issue into the spec the implement agent builds and the review agent checks.
+contract: spec
 model: sonnet
 tools: Bash, Read
 budget_usd: 2

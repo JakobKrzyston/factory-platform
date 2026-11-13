@@ -2,14 +2,13 @@
  *  dashboard. Run: pnpm test */
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 
 import type { Case } from "../bench/cases";
 import { readScores } from "../dashboard/dashboard";
-import { FACTORIES_DIR } from "../factory/factory";
 import { openRunLog, startRun } from "../runlog/runlog";
 import { type Subject, MEASURES, formatScore, parseScorer, readScorers, saveScores, scoreResult } from "./scorers";
 
@@ -48,14 +47,19 @@ function writePatch(text: string): string {
 
 const scorers = (...measures: string[]) => measures.map((measure) => ({ name: measure, measure }));
 
-test("the code factory's scorer files all parse, one per measure", () => {
-  assert.deepEqual(readScorers(join(FACTORIES_DIR, "code", "scorers")), [
-    { name: "cost", measure: "cost" },
-    { name: "findings", measure: "findings" },
-    { name: "scope", measure: "scope" },
-    { name: "tests", measure: "tests" },
+// Scorer files of the test's own, so reading them is tested apart from any factory in factories/ (TL-18).
+test("readScorers reads one scorer per directory in name order, and none from a missing directory", () => {
+  const dir = mkdtempSync(join(tmpdir(), "scorers-"));
+  for (const [name, measure] of [["spend", "cost"], ["reach", "scope"]]) {
+    mkdirSync(join(dir, name));
+    writeFileSync(join(dir, name, "scorer.md"), `---\nmeasure: ${measure}\n---\nGrades ${measure}.\n`);
+  }
+  mkdirSync(join(dir, "notes"));
+  assert.deepEqual(readScorers(dir), [
+    { name: "reach", measure: "scope" },
+    { name: "spend", measure: "cost" },
   ]);
-  assert.deepEqual(readScorers(join(FACTORIES_DIR, "code", "no-such-dir")), []);
+  assert.deepEqual(readScorers(join(dir, "no-such-dir")), []);
 });
 
 test("parseScorer refuses missing fences, an unknown field or measure, and a file that says nothing", () => {

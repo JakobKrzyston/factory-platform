@@ -28,8 +28,8 @@ function executable(path: string) {
 }
 
 /** Runs agent_settings with only HOME, PATH and, when given, PNPM_HOME set; `bins` go first on PATH. */
-function settings(home: string, bins: string[], pnpmHome?: string, role = "implement"): Settings {
-  const run = spawnSync("bash", ["-c", `source "$0" && agent_settings "$1" /key-dir /git-parent '{}'`, SCRIPT, role], {
+function settings(home: string, bins: string[], pnpmHome?: string, contract = "pull-request"): Settings {
+  const run = spawnSync("bash", ["-c", `source "$0" && agent_settings "$1" /key-dir /git-parent '{}'`, SCRIPT, contract], {
     env: { HOME: home, PATH: [...bins, process.env.PATH].join(":"), ...(pnpmHome && { PNPM_HOME: pnpmHome }) },
     encoding: "utf8",
   });
@@ -126,7 +126,7 @@ test("tools outside the home directory need no exception", (t) => {
   assert.deepEqual(allowed(s), []);
 });
 
-test("the reviewer is also denied the git metadata", (t) => {
+test("an agent under the review contract is also denied the git metadata", (t) => {
   const { home } = fakeHome(t);
   assert.ok(settings(home, [], undefined, "review").permissions.deny.includes("Read(//git-parent/**)"));
 });

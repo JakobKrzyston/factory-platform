@@ -5,7 +5,7 @@ One folder per factory. A factory is data: every file here is a definition, and 
 ```
 factories/<name>/
   factory.yaml                      which repositories it serves, which agent is the foreman
-  agents/<agent>/agent.md           one agent: model, tools, budget, time limit, prompt
+  agents/<agent>/agent.md           one agent: its contract, model, tools, budget, time limit, prompt
   agents/<agent>/skills/<skill>/    skills for that agent only
   triggers/<trigger>/trigger.yaml   the label that starts an agent, and the label its success moves to
   triggers/<trigger>/comment.md     the comment posted when that agent succeeds
@@ -68,11 +68,22 @@ What the platform posts for a failure, a question and an incomplete pull request
 
 ## agents/&lt;agent&gt;/agent.md
 
-Documented in [`code/agents/README.md`](code/agents/README.md): `description`, `model`, `tools`, `budget_usd` and `time_limit_seconds` between `---` fences, then the system prompt. What each agent is given and what becomes of its answer is still `scripts/run-issue.sh`'s, by agent name, so a new agent needs a branch there too (TL-18).
+Documented in [`code/agents/README.md`](code/agents/README.md): `description`, `contract`, `model`, `tools`, `budget_usd` and `time_limit_seconds` between `---` fences, then the system prompt.
+
+`contract` picks one of the platform's contracts (TL-18): what `scripts/run-issue.sh` gives the agent, which gate it runs under and what becomes of its answer. The script reads the contract, never the agent's name, so a new agent or a copied factory needs no change outside `factories/`.
+
+| Contract | Given | Gate | Its answer |
+| --- | --- | --- | --- |
+| `note` | the issue and its trusted comments | none | printed; the queue posts it with the trigger's `comment.md` |
+| `spec` | the same | none | printed under the `<!-- factory:spec -->` marker, which a `review` agent finds it by |
+| `pull-request` | the same; a clone on a new branch | the checks and the description check (`platform/gates/`) | a draft PR, whose description is the agent's final message |
+| `review` | the latest spec comment and the PR's diff only, in a checkout of the PR's head without its git metadata | every finding cites a standing rule (`platform/standards/`) | a comment on the PR; it cannot ask a question |
+
+Every contract but `review` may end with `QUESTION:`. A `pull-request` agent's prompt also gets the factory's `skills/pr-description/SKILL.md` and the repository's pull request template, because its gate checks the description they describe; a factory with a `pull-request` agent must have that skill, and `platform/factory/definitions.test.ts` fails without it. A `review` agent's prompt also gets `standards/rules.md`, the rules its gate checks.
 
 ## skills/ and agents/&lt;agent&gt;/skills/
 
-Each skill is a folder holding a `SKILL.md`. No run loads skills by itself yet (every run uses `--setting-sources ""`); `run-issue.sh` appends the two the code factory needs to the prompts that use them: `skills/pr-description/` to implement's and `agents/review/skills/cite-standards/` to review's.
+Each skill is a folder holding a `SKILL.md`. Claude Code loads none by itself (every run uses `--setting-sources ""`), so `run-issue.sh` appends them to the system prompt. Each skill under `agents/<agent>/skills/` is appended to that agent's prompt, in name order, without its front matter if it has any. Skills at the factory root are appended only where a contract names one: `skills/pr-description/` for a `pull-request` agent, as above.
 
 ## scorers/
 

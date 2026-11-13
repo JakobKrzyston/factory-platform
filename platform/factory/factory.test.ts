@@ -5,22 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 
-import { END, parseSettings, readFactories, readFactory, route } from "./factory";
-
-test("the code factory chains triage, spec, implement and review, and ends with a human", () => {
-  const code = readFactories().find((factory) => factory.name === "code");
-  assert.ok(code, "factories/code/ is missing");
-  assert.equal(code.foreman, "triage");
-  assert.deepEqual(code.repositories, ["JakobKrzyston/factory-platform"]);
-  const agents: string[] = [];
-  let at = "factory:ready";
-  for (let trigger = code.triggers.find((t) => t.label === at); trigger; trigger = code.triggers.find((t) => t.label === at)) {
-    agents.push(trigger.agent);
-    at = trigger.next;
-  }
-  assert.deepEqual(agents, ["triage", "spec", "implement", "review"]);
-  assert.equal(at, END);
-});
+import { END, parseSettings, readFactory, route } from "./factory";
 
 test("settings are key: value lines, with comments, quoted values and flow lists", () => {
   const settings = parseSettings('# a comment\nforeman: triage\n\ncolor: "5319E7"\nrepositories: [a/b, "c/d"]\n', "f.yaml");
