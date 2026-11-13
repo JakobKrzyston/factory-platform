@@ -6,6 +6,7 @@ import { extname, join } from "node:path";
 import { test } from "node:test";
 
 import { parseAgent } from "../agents/agent";
+import { readScorers } from "../scorers/scorers";
 import { FACTORIES_DIR, readFactories } from "./factory";
 
 for (const factory of readFactories()) {
@@ -17,6 +18,10 @@ for (const factory of readFactories()) {
       // run-issue.sh appends it to a pull-request agent's prompt; a missing one would leave that part empty.
       if (contract === "pull-request") assert.ok(existsSync(join(dir, "skills/pr-description/SKILL.md")), `${agent} needs skills/pr-description/`);
     }
+  });
+
+  test(`factory ${factory.name}: every scorer's definition parses`, () => {
+    readScorers(join(dir, "scorers"));
   });
 
   // Rule 5: the queue, the run log and the gates are the platform's, so a factory has no code to run.
