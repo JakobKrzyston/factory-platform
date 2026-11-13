@@ -243,8 +243,7 @@ jq -n --arg checkout "$WORKDIR" --arg run_dir "$RUN_DIR" --arg home "$HOME" --ar
   '{checkout: $checkout, package_json: "\($run_dir)/base-package.json", log: "\($run_dir)/gates.jsonl",
     deny_read: [$home, $key_dir]}' > "$RUN_DIR/gate.json"
 
-# Bash runs in the OS sandbox: writes only inside the clone, no reads of the
-# owner's home directory or the key, no network. The stop hook runs outside it,
+# Bash runs in the OS sandbox (scripts/agent-settings.sh). The stop hook runs outside it,
 # and runs the checks in a sandbox of its own (platform/gates/checks.ts). It runs
 # from $ROOT so that tsx does not load the clone's tsconfig.json. Implement hands
 # in changes and is gated by the checks; review hands in findings and is gated by
@@ -257,24 +256,8 @@ elif [[ $ROLE == review ]]; then
   HOOKS=$(jq -n --arg command "cd \"$ROOT\" && node_modules/.bin/tsx platform/standards/standards.ts review-hook \"$RUN_DIR/gates.jsonl\"" \
     '{Stop: [{hooks: [{type: "command", command: $command, timeout: 60}]}]}')
 fi
-# The reviewer may not read the git metadata either: the PR's commit message holds
-# the issue's title, and other factory branches hold earlier attempts.
-DENY_READ=("Read(~/**)" "Read(/$KEY_DIR/**)")
-if [[ $ROLE == review ]]; then DENY_READ+=("Read(/$GIT_PARENT/**)"); fi
-cat > "$RUN_DIR/settings.json" <<JSON
-{
-  "apiKeyHelper": "cat $KEY_DIR/key",
-  "autoMemoryEnabled": false,
-  "permissions": { "deny": $(jq -cn '$ARGS.positional' --args "${DENY_READ[@]}") },
-  "sandbox": {
-    "enabled": true,
-    "failIfUnavailable": true,
-    "autoAllowBashIfSandboxed": true,
-    "allowUnsandboxedCommands": false
-  },
-  "hooks": $HOOKS
-}
-JSON
+source "$ROOT/scripts/agent-settings.sh"
+agent_settings "$ROLE" "$KEY_DIR" "$GIT_PARENT" "$HOOKS" > "$RUN_DIR/settings.json"
 
 # The reviewer gets the spec and the diff, and nothing the implementer saw or
 # said: not the issue, its comments or the PR's description.
