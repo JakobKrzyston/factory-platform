@@ -1,6 +1,6 @@
 /** Renders the cost and rework dashboard from the run log: cost per PR, time per stage, pass rate at each gate
- *  and rework rate, per factory and per week, as one self-contained HTML page. Exports readRuns, weekOf,
- *  weeklyMetrics and renderDashboard. Postgres when DATABASE_URL is set, otherwise SQLite in .runlog/.
+ *  and rework rate, per factory and per week, and the benchmark's scores (TL-16), as one self-contained HTML page.
+ *  Exports readRuns, readScores, weekOf, weeklyMetrics and renderDashboard. Postgres when DATABASE_URL is set, otherwise SQLite in .runlog/.
  *
  *  tsx platform/dashboard/dashboard.ts [out.html]        default .runlog/dashboard.html */
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
@@ -9,6 +9,7 @@ import { pathToFileURL } from "node:url";
 
 import { DEFAULT_SQLITE_PATH } from "../runlog/migrate";
 import { type RunLog, openRunLog } from "../runlog/runlog";
+import { formatScore } from "../scorers/scorers";
 
 /** The columns of one ended, non-benchmark run that the dashboard reads. */
 export type Run = {
@@ -48,6 +49,41 @@ export async function readRuns(db: RunLog): Promise<Run[]> {
     checks_passed: bool(r.checks_passed),
     review_findings: num(r.review_findings),
     rework: bool(r.rework),
+  }));
+}
+
+/** One score of one benchmark run (TL-16), with the columns of its run that place it. */
+export type ScoreRow = {
+  run_id: string;
+  factory: string;
+  factory_sha: string;
+  issue: number;
+  role: string;
+  started_at: Date;
+  scorer: string;
+  score: number;
+  reason: string;
+};
+
+/** Reads every score of a benchmark run.
+ *  Args: db: the run log.
+ *  Returns: the scores, oldest run first, each run's in scorer order. */
+export async function readScores(db: RunLog): Promise<ScoreRow[]> {
+  const rows = await db.query(
+    `SELECT s.run_id, r.factory, r.factory_sha, r.issue, r.role, r.started_at, s.scorer, s.score, s.reason
+     FROM scores s JOIN runs r ON r.id = s.run_id WHERE r.benchmark = ? ORDER BY r.started_at, s.run_id, s.scorer`,
+    [true],
+  );
+  return rows.map((r) => ({
+    run_id: r.run_id as string,
+    factory: r.factory as string,
+    factory_sha: r.factory_sha as string,
+    issue: Number(r.issue),
+    role: r.role as string,
+    started_at: new Date(r.started_at as string | Date),
+    scorer: r.scorer as string,
+    score: Number(r.score),
+    reason: r.reason as string,
   }));
 }
 
@@ -229,10 +265,56 @@ function table(weeks: Week[], roles: string[]): string {
   return `<details><summary>Table</summary><table><thead><tr>${head.map((h) => `<th>${h}</th>`).join("")}</tr></thead><tbody>${rows}</tbody></table></details>`;
 }
 
+/** The benchmark's scores: per factory, a table with one row per factory version benchmarked, newest first, and
+ *  each scorer's mean over that version's runs; then every score with its reason. */
+function scoresSection(scores: ScoreRow[]): string {
+  if (scores.length === 0) return "";
+  const groupBy = <T, K>(xs: T[], key: (x: T) => K) => {
+    const groups = new Map<K, T[]>();
+    for (const x of xs) groups.set(key(x), [...(groups.get(key(x)) ?? []), x]);
+    return groups;
+  };
+  // A dirty checkout's sha is <commit>-dirty-<hash>; the short form keeps the marker.
+  const version = (sha: string) => sha.slice(0, 7) + (sha.includes("-dirty-") ? "-dirty" : "");
+  const factories = [...groupBy(scores, (s) => s.factory)].sort(([a], [b]) => a.localeCompare(b));
+  const body = factories
+    .map(([factory, own]) => {
+      const scorers = [...new Set(own.map((s) => s.scorer))].sort();
+      const versions = [...groupBy(own, (s) => s.factory_sha)].reverse();
+      const summary = versions
+        .map(([sha, rows]) => {
+          const cells = scorers.map((scorer) => {
+            const values = rows.filter((s) => s.scorer === scorer).map((s) => s.score);
+            return `<td>${values.length ? `${formatScore(values.reduce((a, b) => a + b, 0) / values.length)} (${values.length})` : "–"}</td>`;
+          });
+          return `<tr><td><code>${escapeHtml(version(sha))}</code></td><td>${rows[0].started_at.toISOString().slice(0, 10)}</td><td>${new Set(rows.map((s) => s.run_id)).size}</td>${cells.join("")}</tr>`;
+        })
+        .join("");
+      const details = versions
+        .map(
+          ([sha, rows]) =>
+            `<details><summary>Every score of <code>${escapeHtml(version(sha))}</code></summary><table class="reasons"><thead><tr><th>Issue</th><th>Role</th><th>Scorer</th><th>Score</th><th>Reason</th></tr></thead><tbody>${rows
+              .map(
+                (s) =>
+                  `<tr><td>#${s.issue}</td><td>${escapeHtml(s.role)}</td><td>${escapeHtml(s.scorer)}</td><td>${formatScore(s.score)}</td><td>${escapeHtml(s.reason)}</td></tr>`,
+              )
+              .join("")}</tbody></table></details>`,
+        )
+        .join("");
+      const head = ["Version", "First run", "Runs", ...scorers.map((s) => `${escapeHtml(s)} mean (n)`)];
+      return `<h3>${escapeHtml(factory)} factory</h3><table><thead><tr>${head.map((h) => `<th>${h}</th>`).join("")}</tr></thead><tbody>${summary}</tbody></table>${details}`;
+    })
+    .join("\n");
+  return `<section><h2>Benchmark scores</h2>
+<p class="sub">Replays of the benchmark (<code>pnpm bench</code>), graded by the files under each factory's <code>scorers/</code>. Each mean is over the runs that scorer graded.</p>
+${body}</section>`;
+}
+
 /** Renders the dashboard as one HTML page with no external resources.
- *  Args: dashboard: from weeklyMetrics; generatedAt: when the run log was read.
+ *  Args: dashboard: from weeklyMetrics; generatedAt: when the run log was read; scores: from readScores, shown
+ *  after the production charts.
  *  Returns: the page. */
-export function renderDashboard(dashboard: Dashboard, generatedAt: Date): string {
+export function renderDashboard(dashboard: Dashboard, generatedAt: Date, scores: ScoreRow[]): string {
   const { weeks, roles } = dashboard;
   // A role keeps its colour across every factory and chart.
   const slot = (role: string) => roles.indexOf(role) + 1;
@@ -293,11 +375,14 @@ details { margin-top: 12px; } summary { cursor: pointer; color: var(--ink-2); }
 table { border-collapse: collapse; margin-top: 8px; font-variant-numeric: tabular-nums; display: block; overflow-x: auto; }
 th, td { padding: 4px 12px 4px 0; text-align: right; border-bottom: 1px solid var(--grid); white-space: nowrap; }
 th:first-child, td:first-child { text-align: left; }
+h3 { font-size: 15px; margin: 16px 0 4px; } code { font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; }
+.reasons th, .reasons td { text-align: left; } .reasons td:last-child { white-space: normal; min-width: 320px; }
 </style></head>
 <body><main>
 <h1>Factory dashboard</h1>
 <p class="sub">Production runs from the run log, by the week they started (UTC). Generated ${generatedAt.toISOString().slice(0, 16).replace("T", " ")} UTC.</p>
-${sections || `<p class="empty">No finished runs in the run log yet.</p>`}
+${sections || `<p class="empty">No finished production runs in the run log yet.</p>`}
+${scoresSection(scores)}
 </main></body></html>
 `;
 }
@@ -310,7 +395,7 @@ if (import.meta.url === pathToFileURL(process.argv[1]).href) {
   }
   const db = await openRunLog(process.env.DATABASE_URL, DEFAULT_SQLITE_PATH, true);
   try {
-    const html = renderDashboard(weeklyMetrics(await readRuns(db)), new Date());
+    const html = renderDashboard(weeklyMetrics(await readRuns(db)), new Date(), await readScores(db));
     mkdirSync(dirname(out), { recursive: true });
     writeFileSync(out, html);
     console.log(out);

@@ -25,3 +25,11 @@ A PR whose runs started in two different weeks counts in both. Factory runs on o
 The run log records whether all gates passed, not which one failed. Per-check pass rates would need the gate log (`gates.jsonl`) in the run log, which is a schema change for a later stage.
 
 The table under each factory's charts holds the same numbers, for screen readers and for copying into a note.
+
+## Benchmark scores
+
+After the production charts, a section shows the `scores` table (TL-16), for benchmark runs only. Per factory, one row per factory version benchmarked (`factory_sha`, newest first), with the date of its first scored run, how many runs were scored, and each scorer's mean over the runs it graded, with how many that was. A version's every score, with its issue, role and reason, is in a collapsed table under it. A version benchmarked several times is one row, so its means pool the runs.
+
+It is a table, not a chart: versions are not a time axis, and two versions benchmarked on one day would sit on top of each other. A mean hides a case that got worse while another got better; the collapsed table is where to look.
+
+The dashboard opens the run log read-only and applies no migrations, so it needs `scores` to exist: run `pnpm runlog:migrate`, or any factory run or `pnpm bench`, against a run log from before TL-16.

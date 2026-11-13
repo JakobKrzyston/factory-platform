@@ -8,8 +8,8 @@ import { join } from "node:path";
 export const ROLES = ["triage", "spec", "implement", "review"] as const;
 export type Role = (typeof ROLES)[number];
 
-/** What the replay harness reads from a case. `pr` is the merged PR a review-only case reviews. The other
- *  settings (`files`, `checks`) and the expected outcome are for the scorers (TL-16). */
+/** What the replay harness and the scorers read from a case. `pr` is the merged PR a review-only case reviews;
+ *  `files` and `checks` are for the scorers (TL-16). The expected outcome is for a person reading the case. */
 export type Case = {
   id: string;
   issue: number;
@@ -17,6 +17,10 @@ export type Case = {
   base_sha: string;
   role: Role;
   stages: Role[];
+  /** The paths the change may touch. */
+  files: string[];
+  /** One shell line that proves the outcome, or empty. */
+  checks: string;
   title: string;
   body: string;
 };
@@ -80,6 +84,8 @@ export function parseCase(id: string, text: string): Case {
     base_sha,
     role,
     stages: stages as Role[],
+    files: (settings.get("files") ?? "").split(",").map((file) => file.trim()).filter(Boolean),
+    checks: settings.get("checks") ?? "",
     title: first.replace(/^#+\s*/, ""),
     body: fenced ? fenced[2].trim() : body,
   };

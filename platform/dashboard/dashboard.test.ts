@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 
 import { type RunLog, openRunLog } from "../runlog/runlog";
-import { readRuns, renderDashboard, weekOf, weeklyMetrics } from "./dashboard";
+import { type ScoreRow, readRuns, renderDashboard, weekOf, weeklyMetrics } from "./dashboard";
 
 type Row = {
   id: string;
@@ -149,7 +149,7 @@ test("the page has a section per factory, keeps each role's colour, and escapes 
     review_findings: null,
     rework: null,
   }));
-  const html = renderDashboard(weeklyMetrics(runs), new Date("2026-11-11T12:00:00Z"));
+  const html = renderDashboard(weeklyMetrics(runs), new Date("2026-11-11T12:00:00Z"), []);
   assert.match(html, /<h2>code factory<\/h2>/);
   assert.match(html, /<h2>&lt;docs&gt; factory<\/h2>/);
   assert.doesNotMatch(html, /<docs>/);
@@ -166,5 +166,30 @@ test("a read-only open neither migrates nor creates a missing SQLite file", asyn
 });
 
 test("an empty run log renders a page that says so", () => {
-  assert.match(renderDashboard(weeklyMetrics([]), new Date()), /No finished runs in the run log yet/);
+  assert.match(renderDashboard(weeklyMetrics([]), new Date(), []), /No finished production runs in the run log yet/);
+});
+
+test("benchmark scores show per factory version, newest first, with each scorer's mean and every reason", () => {
+  const score = (run_id: string, factory_sha: string, day: string, scorer: string, value: number, reason: string): ScoreRow => ({
+    run_id,
+    factory: "code",
+    factory_sha,
+    issue: 60,
+    role: "implement",
+    started_at: new Date(`2026-11-${day}T10:00:00Z`),
+    scorer,
+    score: value,
+    reason,
+  });
+  const html = renderDashboard(weeklyMetrics([]), new Date(), [
+    score("a", "5477cf4c0ffee", "10", "tests", 1, "the case's checks passed on the patch in 9s"),
+    score("b", "5477cf4c0ffee", "10", "tests", 0, "the case's checks failed (exit 1): <no output>"),
+    score("c", "e2fdf32c0ffee-dirty-0123456789ab", "12", "cost", 0.05, "$0.05 for implement in 25s"),
+  ]);
+  assert.match(html, /<h2>Benchmark scores<\/h2>/);
+  assert.match(html, /<th>Version<\/th><th>First run<\/th><th>Runs<\/th><th>cost mean \(n\)<\/th><th>tests mean \(n\)<\/th>/);
+  assert.ok(html.indexOf("<code>e2fdf32-dirty</code></td>") < html.indexOf("<code>5477cf4</code></td>"), "newest version first");
+  assert.match(html, /<code>5477cf4<\/code><\/td><td>2026-11-10<\/td><td>2<\/td><td>–<\/td><td>0.5 \(2\)<\/td>/);
+  assert.match(html, /<td>#60<\/td><td>implement<\/td><td>tests<\/td><td>0<\/td><td>the case's checks failed \(exit 1\): &lt;no output&gt;<\/td>/);
+  assert.doesNotMatch(renderDashboard(weeklyMetrics([]), new Date(), []), /Benchmark scores/);
 });

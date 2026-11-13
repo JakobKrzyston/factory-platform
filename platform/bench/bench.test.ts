@@ -47,6 +47,8 @@ test("parseCase reads the settings and splits the issue snapshot into title and 
     base_sha: "d40a26e0ffeed40a26e0ffeed40a26e0ffeed40a",
     role: "implement",
     stages: ["spec", "implement", "review"],
+    files: ["platform/runlog/runlog.ts", "scripts/run-issue.sh"],
+    checks: "pnpm test",
     title: "TL-12: Run log rows",
     body: "Every run writes a row.\n\n## Acceptance\n\n- A row per run.",
   });
@@ -64,19 +66,38 @@ test("parseCase refuses an unknown stage, a missing snapshot and a base that is 
   assert.throws(() => parseCase("c", CASE.replace("base_sha: d40a", "base_sha: main")), /base_sha must be a commit/);
 });
 
-test("formatSummary aligns the columns and totals cost and wall time", () => {
+test("formatSummary aligns the columns, totals cost and wall time, and lists each result's scores", () => {
   const table = formatSummary([
-    { case: "12-run-log-rows", role: "spec", outcome: "done", checks_passed: null, cost_usd: 0.123, wall_seconds: 40 },
-    { case: "12-run-log-rows", role: "implement", outcome: "failed", checks_passed: false, cost_usd: 2, wall_seconds: 900 },
-    { case: "12-run-log-rows", role: "review", outcome: "skipped", checks_passed: null, cost_usd: null, wall_seconds: null },
+    {
+      case: "12-run-log-rows",
+      role: "spec",
+      outcome: "done",
+      checks_passed: null,
+      cost_usd: 0.123,
+      wall_seconds: 40,
+      scores: [{ scorer: "cost", score: 0.123, reason: "$0.123 for spec in 40s" }],
+    },
+    {
+      case: "12-run-log-rows",
+      role: "implement",
+      outcome: "failed",
+      checks_passed: false,
+      cost_usd: 2,
+      wall_seconds: 900,
+      scores: [
+        { scorer: "cost", score: 2, reason: "$2.000 for implement in 900s" },
+        { scorer: "tests", score: 0, reason: "implement ended failed and handed off no patch" },
+      ],
+    },
+    { case: "12-run-log-rows", role: "review", outcome: "skipped", checks_passed: null, cost_usd: null, wall_seconds: null, scores: [] },
   ]);
   assert.equal(
     table,
     [
-      "case             role       outcome  checks  cost   wall time",
-      "12-run-log-rows  spec       done     -       $0.12  40s",
-      "12-run-log-rows  implement  failed   failed  $2.00  900s",
-      "12-run-log-rows  review     skipped  -       -      -",
+      "case             role       outcome  checks  cost   wall time  scores",
+      "12-run-log-rows  spec       done     -       $0.12  40s        cost 0.123",
+      "12-run-log-rows  implement  failed   failed  $2.00  900s       cost 2, tests 0",
+      "12-run-log-rows  review     skipped  -       -      -          -",
       "total                                        $2.12  940s",
     ].join("\n"),
   );

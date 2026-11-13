@@ -76,4 +76,10 @@ Each skill is a folder holding a `SKILL.md`. No run loads skills by itself yet (
 
 ## scorers/
 
-Empty until scorers grade benchmark results, each as `scorers/<scorer>/scorer.md` (TL-16).
+Each scorer grades benchmark results, one folder each holding a `scorer.md` (TL-16). Its settings, between `---` fences, are one field:
+
+| Field | Meaning |
+| --- | --- |
+| `measure` | The code that computes the number: `tests`, `scope`, `findings` or `cost`, in `platform/scorers/scorers.ts`. The file names one; it does not hold code. |
+
+The text after the settings says what the number means, and must not be empty. The scorer's name in the run log is its folder name. `pnpm bench` reads the scorers from the checkout it runs in, not from the ref it benchmarks, so an old and a new version of a factory are graded by the same scorers. The code factory's are listed in [`code/scorers/README.md`](code/scorers/README.md).

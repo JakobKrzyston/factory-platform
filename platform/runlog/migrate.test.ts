@@ -30,7 +30,7 @@ const INSERT_START = `INSERT INTO runs (id, factory, role, factory_sha, model, r
 
 test("applies each migration once", () => {
   const path = join(mkdtempSync(join(tmpdir(), "runlog-")), "nested", "runlog.db");
-  assert.deepEqual(migrateSqlite(path), ["001_runs"]);
+  assert.deepEqual(migrateSqlite(path), ["001_runs", "002_scores"]);
   assert.deepEqual(migrateSqlite(path), []);
 });
 
