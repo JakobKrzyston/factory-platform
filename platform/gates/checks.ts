@@ -53,9 +53,10 @@ export function sandboxSettings(dir: string, denyRead: string[], tmp: string) {
 /** Runs each check in `dir`, one after another, each inside the sandbox.
  *  The checkout's node_modules/.bin goes first on PATH only inside the sandbox, as with `npm run`, but pre and post
  *  scripts do not run. stderr is merged into stdout so the output keeps its order.
- *  Args: dir: the checkout; checks: what to run, usually baseChecks(...); denyRead: passed to sandboxSettings.
+ *  Args: dir: the checkout; checks: what to run, usually baseChecks(...); denyRead: passed to sandboxSettings;
+ *    env: the checks' environment, this process's by default.
  *  Returns: one result per check. */
-export function runChecks(dir: string, checks: Check[], denyRead: string[]): CheckResult[] {
+export function runChecks(dir: string, checks: Check[], denyRead: string[], env: NodeJS.ProcessEnv = process.env): CheckResult[] {
   const settingsDir = mkdtempSync(join(tmpdir(), "gates-"));
   const settingsFile = join(settingsDir, "srt-settings.json");
   // srt points TMPDIR at CLAUDE_CODE_TMPDIR, or else at /tmp/claude, which only Claude Code creates and which the
@@ -69,7 +70,7 @@ export function runChecks(dir: string, checks: Check[], denyRead: string[]): Che
       const command = `PATH="$GATE_BIN:$PATH"; exec 2>&1\n${script}`;
       const run = spawnSync(process.execPath, [SRT_CLI, "--settings", settingsFile, "-c", command], {
         cwd: dir,
-        env: { ...process.env, GATE_BIN: join(dir, "node_modules/.bin"), CLAUDE_CODE_TMPDIR: tmp },
+        env: { ...env, GATE_BIN: join(dir, "node_modules/.bin"), CLAUDE_CODE_TMPDIR: tmp },
         encoding: "utf8",
         timeout: CHECK_TIMEOUT_MS,
         maxBuffer: 64 * 1024 * 1024,

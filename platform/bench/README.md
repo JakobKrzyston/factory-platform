@@ -1,6 +1,6 @@
 # Replay harness
 
-Replays the benchmark through one version of a factory (TL-15). Why it works this way is in `docs/ARCHITECTURE.md`, under TL-15.
+Replays the benchmark through one version of a factory (TL-15) and scores every result (TL-16). Why it works this way is in `docs/ARCHITECTURE.md`, under TL-15 and TL-16.
 
 ```sh
 pnpm bench <factory> <git-ref>                # every case under benchmark/
@@ -21,6 +21,12 @@ total                                                 $0.13  53s
 
 ## What a case gives the harness
 
-From `benchmark/<id>/case.md` (`cases.ts`), it reads `issue`, `pr`, `base_sha`, `role`, `stages` and the `## Issue` snapshot. The snapshot's first line, without leading `#`s, is the issue's title. The rest is its body, unwrapped from the code fence TL-14 puts around it, and the section runs to `## Expected outcome`, so the issue's own headings stay in it. `files`, `checks` and the expected outcome are for the scorers (TL-16).
+From `benchmark/<id>/case.md` (`cases.ts`), it reads `issue`, `pr`, `base_sha`, `role`, `stages` and the `## Issue` snapshot. The snapshot's first line, without leading `#`s, is the issue's title. The rest is its body, unwrapped from the code fence TL-14 puts around it, and the section runs to `## Expected outcome`, so the issue's own headings stay in it. `files` and `checks` are for the scorers (TL-16). The expected outcome is for a person: no scorer reads it yet.
+
+## Scoring
+
+After each stage, while its row is fresh, the harness runs every scorer under this checkout's `factories/<factory>/scorers/` on the result, and stores each score that applies in the run log's `scores` table (`platform/scorers/`). The scorers come from the checkout, not from the ref under test, as the cases do, so an old ref and a new one are graded by the same scorers. A stage with no row, which the script stopped before inserting, or one skipped by `--max-usd`, is not scored.
+
+The `tests` scorer runs the case's `checks` line on the base with the patch implement handed off. It does that in a fresh clone in the system's temporary directory, with the base's dependencies installed before the patch is applied, inside the gate's sandbox, with only `PATH` and `HOME` in its environment. Inside the sandbox `pnpm` is a shell function: `pnpm <script>` runs the base's `package.json` script and `pnpm exec <bin>` runs `node_modules/.bin/<bin>`. pnpm itself is under the home directory the sandbox denies, and the patched `package.json` is agent-written. This adds about ten seconds per implement stage on this repository.
 
 A review reviews the patch the replay's implement stage made. With no implement stage before it, it reviews the case's merged `pr` from `base_sha` to the PR's head, found from the merge commit in the local repository. It takes the spec its spec stage wrote, or, with no spec stage, the issue. A review with neither an implement stage nor a `pr` is refused.

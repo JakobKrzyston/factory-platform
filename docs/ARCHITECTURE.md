@@ -118,7 +118,7 @@ Tested by: TL-10. Revisit when a second factory gets its own App: an App with wr
 
 ### The run log is a table, not a log file (TL-11)
 
-One row per run, written at start and end. SQLite in `.runlog/` locally, Neon Postgres in the cloud, same schema: one SQL file (`platform/runlog/migrations/001_runs.sql`) runs unchanged on both. Columns: `factory`, `role`, `issue`, `model`, `input_tokens`, `output_tokens`, `cost_usd`, `wall_seconds`, `checks_passed`, `review_findings`, `rework` (set when a human changed the PR between hand-off and merge), `benchmark` (true for replay runs, so they stay out of production metrics).
+One row per run, written at start and end. SQLite in `.runlog/` locally, Neon Postgres in the cloud, same schema: the SQL files under `platform/runlog/migrations/` run unchanged on both. Columns: `factory`, `role`, `issue`, `model`, `input_tokens`, `output_tokens`, `cost_usd`, `wall_seconds`, `checks_passed`, `review_findings`, `rework` (set when a human changed the PR between hand-off and merge), `benchmark` (true for replay runs, so they stay out of production metrics).
 
 TL-11 added the columns a run needs to be reconstructed from its row and its PR: `id`, `status`, `started_at` and `ended_at`; `factory_sha` (which definition ran); `repo`, `pr` and `head_sha` (exactly what it produced, and what `rework` compares against); and `cache_read_tokens` and `cache_write_tokens`, without which input tokens understate an agent run and cost cannot be checked. Each column is described in `platform/runlog/README.md`.
 
@@ -161,9 +161,22 @@ The row is written by the script, as for every run, with `benchmark` true (`runl
 
 Spending: each run is still capped by its role's `budget_usd`. `--max-usd` (default 10) stops starting runs once the runs so far cost that much, so a benchmark overshoots it by at most one run's budget. `--case` runs one case.
 
-Not yet: scorers (TL-16) and the cases themselves (TL-14). Cases replay against this repository only, since the clone source is the local repository. A run is sequential and takes as long as its agents; parallel replays would need one clone per case, which the design allows.
+Cases replay against this repository only, since the clone source is the local repository. A run is sequential and takes as long as its agents; parallel replays would need one clone per case, which the design allows.
 
 Tested by: TL-15 (`docs/notes/15-replay-harness.md`).
+
+### A scorer is a file that names a measure; scores are rows beside the run (TL-16)
+
+Each scorer is `factories/<name>/scorers/<scorer>/scorer.md`: one setting, `measure`, between `---` fences, and the text that says what the number means. The measure is code in `platform/scorers/scorers.ts`. A factory is data (rule 5), so the file names a measure rather than holding one, as `agent.md` names a model. The code factory has four, one per question TL-16 asks: `tests` (did the case's `checks` pass on the patch implement handed off, 1 or 0), `scope` (the share of the patch's files among the case's `files`), `findings` (how many findings a review raised) and `cost` (`cost_usd`). Every scorer is run on every result, and a measure that does not apply returns nothing: `scope` has no patch to read on a triage run. What each one grades is in `factories/code/scorers/README.md`.
+
+- **Scores are a table, not columns.** `scores` holds `run_id`, `scorer`, `score` and `reason`, keyed by run and scorer (`platform/runlog/migrations/002_scores.sql`). A new scorer is then a file, not a migration, and the meta-factory, which may change only `factories/`, could add one without touching the schema.
+- **The checkout's scorers grade every ref.** `pnpm bench` reads scorers from the checkout it runs in, as it reads the cases, not from the ref under test. A ref from before TL-16 has no scorers, and a comparison graded by each side's own scorers would compare two rulers. It also keeps a proposed factory from grading itself with scorers it changed. The cost is that a score does not record which scorers gave it.
+- **`tests` reruns the case's checks in the gate's sandbox.** It clones the base into the system's temporary directory, installs the base's dependencies before applying the patch, and runs the `checks` line under srt with the home directory denied and only `PATH` and `HOME` in the environment. That is the gate's own confinement (`platform/gates/checks.ts`), because the patch is agent-written code. The checks call `pnpm`, which lives under the denied home directory, so inside the sandbox `pnpm` is a shell function that runs the base's `package.json` scripts and `node_modules/.bin`. A patch cannot pass by rewriting what `pnpm test` runs.
+- **No judge model yet.** The four measures are deterministic. Whether a triage note, spec or review says what the case's expected outcome says needs a model reading both, which is a scorer of its own with its own cost and noise. Until then `findings` counts a review's findings without knowing whether they are the right ones.
+
+The dashboard shows the scores in a section after the production charts: per factory, a row per factory version benchmarked with each scorer's mean, and every score with its reason underneath (`platform/dashboard/README.md`).
+
+Tested by: TL-16 (`docs/notes/16-scorers.md`), then TL-24, which merges a meta-PR only if no scorer regressed.
 
 ### Factories are directories (TL-17)
 

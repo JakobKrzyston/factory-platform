@@ -1,6 +1,6 @@
 # Run log
 
-One row per agent run, in a table called `runs`. The schema is [`migrations/001_runs.sql`](migrations/001_runs.sql), and the same file runs on SQLite (locally, `.runlog/runlog.db`) and on Neon Postgres (in the cloud), so the two cannot drift.
+One row per agent run, in a table called `runs`, and one row per score a scorer gave a benchmark run, in `scores` (TL-16). The schema is [`migrations/`](migrations/), and the same files run on SQLite (locally, `.runlog/runlog.db`) and on Neon Postgres (in the cloud), so the two cannot drift.
 
 ```sh
 pnpm runlog:migrate   # SQLite in .runlog/, or Postgres when DATABASE_URL is set (.env.local is read if present)
@@ -70,6 +70,19 @@ The row says what ran (`factory` and `role` at `factory_sha`, on `model`), on wh
 | `checks_passed` | boolean | yes | True if every gate check passed when the run ended, false if any failed. Null for a role that runs no gates. Which checks ran, and their output, are the check runs on `head_sha`. |
 | `review_findings` | integer | yes | For a `review` run, the number of findings it raised: the bullets of its review's last `## Findings` section. Null for other roles, and for a review without that section. An implementer's findings are those of the review runs on the same `pr`. A review run records no `head_sha`, so `rework` still compares against the implementer's hand-off; the commit it reviewed is `reviewed_sha` in its `run.json` and in its PR comment. |
 | `rework` | boolean | yes | Set on a PR's runs when the PR merges: true if a human changed it between hand-off (`head_sha` of the last factory run) and merge, false if it merged as handed off. Null until then, for runs with no PR, and for runs that recorded no `head_sha`. |
+
+## Scores
+
+`pnpm bench` grades each benchmark run with the factory's scorers (`platform/scorers/`, `factories/<name>/scorers/`) and writes one row per scorer that applied, in [`migrations/002_scores.sql`](migrations/002_scores.sql). A scorer that does not apply to a run, such as `scope` on a triage run, writes nothing. Scores are their own table, not columns on `runs`, so a new scorer is a new file under `scorers/`, not a migration.
+
+| Column | Type | Meaning |
+| --- | --- | --- |
+| `run_id` | text | The `runs` row graded. Postgres enforces the reference; SQLite, which leaves foreign keys off by default, does not. |
+| `scorer` | text | The scorer's folder name under `factories/<factory>/scorers/`, such as `tests`. One score per scorer per run: the pair is the key. |
+| `score` | double precision | The number. What it means is in the scorer's `scorer.md`: a 0 or 1, a share, a count or dollars. |
+| `reason` | text | Why, on one line, such as `the case's checks failed (exit 1): ...`. Never empty. |
+
+The scores do not record which version of the scorers gave them: `pnpm bench` uses the checkout it runs in, whose commit is not stored. Two benchmark runs compared in one checkout are graded alike.
 
 ## Dialect differences
 

@@ -1,6 +1,7 @@
 /** The replay harness (TL-15): replays every benchmark case through one factory version, checked out at a git
- *  ref in a clone of its own, and prints a summary table. Each run is a row in the run log marked benchmark.
- *  Exports bench and formatSummary.
+ *  ref in a clone of its own, scores each result with this checkout's scorers (TL-16), and prints a summary table.
+ *  Each run is a row in the run log marked benchmark, and each score a row in `scores`. Exports bench and
+ *  formatSummary.
  *
  *  pnpm bench <factory> <git-ref> [--case <id>] [--max-usd <n>]
  *
@@ -15,9 +16,10 @@ import { parseArgs } from "node:util";
 import { pathToFileURL } from "node:url";
 
 import { openRunLog } from "../runlog/runlog";
+import { type Score, formatScore, readScorers, saveScores, scoreResult } from "../scorers/scorers";
 import { type Case, readCases } from "./cases";
 
-/** One stage of one case: how its run ended, from its run log row. */
+/** One stage of one case: how its run ended, from its run log row, and what the scorers made of it. */
 export type Result = {
   case: string;
   role: string;
@@ -25,6 +27,7 @@ export type Result = {
   checks_passed: boolean | null;
   cost_usd: number | null;
   wall_seconds: number | null;
+  scores: Score[];
 };
 
 const git = (cwd: string, args: string[]) => execFileSync("git", args, { cwd, encoding: "utf8" }).trim();
@@ -45,7 +48,8 @@ function prHead(root: string, c: Case): string {
  *  the queue would through GitHub: the triage note and the spec as comments, the implement run's patch as the
  *  PR the reviewer reviews. A review with no implement stage before it reviews the case's merged PR, from
  *  base_sha to the PR's head, and one with no spec stage before it takes the issue as its spec. A stage that
- *  does not end `done` ends its case.
+ *  does not end `done` ends its case. Each run is scored by the scorers under this checkout's
+ *  `factories/<factory>/scorers/`, not the ref's, so that two refs are graded by the same scorers.
  *
  *  Args:
  *    root: this checkout. Its benchmark/ holds the cases, its repository supplies both the ref and each case's
@@ -63,6 +67,7 @@ export async function bench(root: string, factory: string, ref: string, cases: C
   const repo = git(root, ["remote", "get-url", "origin"]).match(/github\.com[:/](.+?)(\.git)?$/)?.[1];
   if (!repo) throw new Error("origin is not a GitHub repository");
   const base = git(root, ["rev-parse", "--abbrev-ref", "origin/HEAD"]).replace(/^origin\//, "");
+  const scorers = readScorers(join(root, "factories", factory, "scorers"));
 
   // The clone below goes under this checkout, so under the home directory the agents' sandbox denies: it holds
   // benchmark/, with each case's expected outcome, and history past every case's base.
@@ -94,7 +99,7 @@ export async function bench(root: string, factory: string, ref: string, cases: C
         const login = process.env.FACTORY_BOT || "factory";
         for (const role of c.stages) {
           if (spent >= maxUsd) {
-            results.push({ case: c.id, role, outcome: "skipped", checks_passed: null, cost_usd: null, wall_seconds: null });
+            results.push({ case: c.id, role, outcome: "skipped", checks_passed: null, cost_usd: null, wall_seconds: null, scores: [] });
             continue;
           }
           if (role === "review" && !comments.some((comment) => comment.body.startsWith(SPEC_MARKER))) {
@@ -112,7 +117,10 @@ export async function bench(root: string, factory: string, ref: string, cases: C
             stdio: ["ignore", "pipe", "inherit"],
             encoding: "utf8",
           });
-          const [row] = await db.query("SELECT status, checks_passed, cost_usd, wall_seconds FROM runs WHERE id = ?", [id]);
+          const [row] = await db.query(
+            "SELECT status, checks_passed, cost_usd, wall_seconds, review_findings FROM runs WHERE id = ?",
+            [id],
+          );
           // SQLite returns booleans as 1/0, Postgres numerics as strings.
           const known = (v: unknown) => v !== null && v !== undefined;
           const result: Result = {
@@ -123,11 +131,26 @@ export async function bench(root: string, factory: string, ref: string, cases: C
             checks_passed: known(row?.checks_passed) ? Boolean(row.checks_passed) : null,
             cost_usd: known(row?.cost_usd) ? Number(row.cost_usd) : null,
             wall_seconds: known(row?.wall_seconds) ? Number(row.wall_seconds) : null,
+            scores: [],
           };
+          const out = run.stdout.trim();
+          // A run with no row has nothing to store its scores with.
+          if (row) {
+            result.scores = scoreResult(scorers, {
+              case: c,
+              role,
+              outcome: result.outcome,
+              cost_usd: result.cost_usd,
+              wall_seconds: result.wall_seconds,
+              review_findings: known(row.review_findings) ? Number(row.review_findings) : null,
+              patch: role === "implement" && run.status === 0 ? out : null,
+              source,
+            });
+            await saveScores(db, id, result.scores);
+          }
           results.push(result);
           spent += result.cost_usd ?? 0;
           if (run.status !== 0) break;
-          const out = run.stdout.trim();
           // The bodies the factory workflow posts, without their run log links.
           if (role === "triage") comments.push({ user: { login }, body: `**Triage**\n\n${out}` });
           if (role === "spec") comments.push({ user: { login }, body: out });
@@ -145,7 +168,7 @@ export async function bench(root: string, factory: string, ref: string, cases: C
   }
 }
 
-/** Formats results as an aligned text table, with a total.
+/** Formats results as an aligned text table, with a total. Each score is `<scorer> <score>`.
  *  Args: results: from bench.
  *  Returns: the table, one line per result. */
 export function formatSummary(results: Result[]): string {
@@ -156,10 +179,15 @@ export function formatSummary(results: Result[]): string {
     r.checks_passed === null ? "-" : r.checks_passed ? "passed" : "failed",
     r.cost_usd === null ? "-" : `$${r.cost_usd.toFixed(2)}`,
     r.wall_seconds === null ? "-" : `${r.wall_seconds}s`,
+    r.scores.map((s) => `${s.scorer} ${formatScore(s.score)}`).join(", ") || "-",
   ]);
   const total = results.reduce((sum, r) => sum + (r.cost_usd ?? 0), 0);
   const wall = results.reduce((sum, r) => sum + (r.wall_seconds ?? 0), 0);
-  const table = [["case", "role", "outcome", "checks", "cost", "wall time"], ...rows, ["total", "", "", "", `$${total.toFixed(2)}`, `${wall}s`]];
+  const table = [
+    ["case", "role", "outcome", "checks", "cost", "wall time", "scores"],
+    ...rows,
+    ["total", "", "", "", `$${total.toFixed(2)}`, `${wall}s`, ""],
+  ];
   const widths = table[0].map((_, i) => Math.max(...table.map((row) => row[i].length)));
   return table.map((row) => row.map((cell, i) => cell.padEnd(widths[i])).join("  ").trimEnd()).join("\n");
 }

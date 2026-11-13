@@ -9,7 +9,7 @@ It is also the factory's own first customer. Every requirement below is a ticket
 ## What is here
 
 ```
-platform/      shared by every factory: the work queue, run log, dashboard, gate runner, replay harness, health checks and MCP gateway
+platform/      shared by every factory: the work queue, run log, dashboard, gate runner, replay harness, scorers, health checks and MCP gateway
 factories/     one directory per factory; copy one to create a factory, move folders to split one
   code/        the first factory: agents/, triggers/, scorers/, skills/
 benchmark/     past issues with expected outcomes, replayed to judge any factory change
@@ -40,7 +40,7 @@ Add the `factory:ready` label to an issue in this repository. `.github/workflows
 pnpm dashboard               # writes .runlog/dashboard.html from the run log
 ```
 
-Cost per PR, time per stage, gate pass rates and rework rate, per factory and per week. What each number means is in [`platform/dashboard/README.md`](platform/dashboard/README.md).
+Cost per PR, time per stage, gate pass rates and rework rate, per factory and per week, then the benchmark's scores per factory version. What each number means is in [`platform/dashboard/README.md`](platform/dashboard/README.md).
 
 ## Benchmark a factory version
 
@@ -48,7 +48,7 @@ Cost per PR, time per stage, gate pass rates and rework rate, per factory and pe
 pnpm bench <factory> <git-ref> [--case <id>] [--max-usd <n>]
 ```
 
-Replays every case under `benchmark/` through `factories/<factory>/` as it was at `<git-ref>`, in a clone of its own, and prints each stage's outcome, checks, cost and wall time. A replay reads nothing from GitHub and writes nothing to it, and its rows in the run log are marked `benchmark`, so the dashboard leaves them out. `--max-usd` (default 10) stops starting runs once the benchmark has spent that much. See [`platform/bench/README.md`](platform/bench/README.md).
+Replays every case under `benchmark/` through `factories/<factory>/` as it was at `<git-ref>`, in a clone of its own, scores each stage with the files under `factories/<factory>/scorers/`, and prints each stage's outcome, checks, cost, wall time and scores. A replay reads nothing from GitHub and writes nothing to it, and its rows in the run log are marked `benchmark`, so the dashboard's production charts leave them out; their scores have a section of their own. `--max-usd` (default 10) stops starting runs once the benchmark has spent that much. See [`platform/bench/README.md`](platform/bench/README.md).
 
 ## Turn review comments into rules
 
