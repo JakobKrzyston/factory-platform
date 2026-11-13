@@ -2,7 +2,7 @@
 
 A software factory built in the open, one measured stage at a time.
 
-![A ticket enters a conveyor, passes four stations, and reaches a person who approves it; every station writes to a ledger that loops back to the line](docs/img/factory-line.jpg)
+![A ticket enters a conveyor, passes four stations, and reaches a person who approves it; every station writes to a ledger that loops back to the line]
 
 A software factory takes a labelled GitHub issue and returns a reviewed pull request without a person watching. This repository is the factory, the shared platform under it (queue, gates, run log, benchmark), and the record of what each stage cost and changed. It is also its own first customer: every requirement in the plan is a ticket the factory will eventually work.
 
