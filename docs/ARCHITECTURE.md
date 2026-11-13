@@ -70,13 +70,13 @@ Tested by: TL-5 (`docs/notes/05-quality-gates.md`). CI runs the same `typecheck`
 
 The four roles are triage (Haiku), spec, implement and review (Sonnet). The queue chains them by label (since TL-17, the factory's `triggers/`): each is a separate workflow run on a fresh runner, and its success adds the label that starts the next. They hand work on through GitHub, not through a shared disk. The triage note and the spec are issue comments from the factory App, the implementation is a draft PR, and the review is a comment on that PR.
 
-`run-issue.sh <role>` keeps one confinement for every role and adds what differs, which is the platform's contract rather than the definition's:
+`run-issue.sh <agent>` keeps one confinement for every role and adds what differs, which is the platform's contract rather than the definition's (since TL-18 the definition names which contract, below):
 
 - **Inputs.** Triage, spec and implement get the issue and its trusted comments, the spec included.
 - **The gate.** Only implement hands in changes, so only implement gets the stop hook, which since TL-8 also checks the PR description. `run-issue.sh` appends the pr-description skill and the PR template to implement's prompt, because that check enforces them; a definition cannot drop them.
 - **The reviewer's isolation.** It gets a fresh clone, detached at the head commit of the issue's newest open factory PR from this repository. It is also denied the clone's git metadata, which holds the commit message, and with it the issue's title, as well as earlier attempts on other branches. Its prompt holds only the latest App-or-maintainer comment headed `<!-- factory:spec -->` and `git diff base...head`: no issue, no other comments, no PR description, and no transcript, which lives on another runner. It checks out the PR's head only after installing the base branch's dependencies, because pnpm runs a `.pnpmfile.cjs` from an agent-written branch even with `--ignore-scripts`, outside any sandbox. Its review is posted as a comment, never a review, so the factory still cannot approve (TL-10). The run log counts its `## Findings` bullets as `review_findings`. A `QUESTION:` from it is posted as its review, since nobody could answer it.
 
-Not yet: skills a definition chooses, and MCP servers. Every run still uses `--setting-sources ""` and `--strict-mcp-config`, so no role loads either. The role contracts live in `scripts/run-issue.sh`, by role name, so a second factory with different roles needs a branch there (TL-18). TL-17 moved the chain itself into the factory's triggers. A blocking finding does not send the PR back to implement; a human reads it.
+Not yet: MCP servers. Every run still uses `--setting-sources ""` and `--strict-mcp-config`, so no role loads Claude Code's own skills or servers; `run-issue.sh` appends skills to the prompt instead (TL-18). TL-17 moved the chain itself into the factory's triggers. A blocking finding does not send the PR back to implement; a human reads it.
 
 Tested by: TL-7 (`docs/notes/07-role-agents.md`), then the benchmark in TL-15.
 
@@ -191,9 +191,23 @@ Following Warp's layout: a resource's name is its path, exactly one agent per fa
 - **Fewer fields than first sketched.** No `name`, because the folder is the name and the run log records it. No `defaults` (model, harness), because every `agent.md` must set its model and there is one harness; a field nothing reads would only drift. `trigger.yaml` gained `color` and `description`, because `queue setup` creates the trigger labels and their GitHub descriptions should not change.
 - **A subset of YAML, read without a dependency.** `key: value` lines, quoted values and `[a, b]` lists are all the files need, the same shape `agent.md` already uses, and a 20-line reader keeps each error message naming the file. A YAML 1.2 parser reads them the same, so TL-20 can use one.
 
-Not yet: `run-issue.sh` still branches on the four role names for what each is given and how its answer is published (TL-18), and its usage still lists them. Triggers other than a label (a schedule, a PR opened) are an `on` value nothing accepts yet.
+Not yet: triggers other than a label (a schedule, a PR opened) are an `on` value nothing accepts yet.
 
 Tested by: `platform/factory/factory.test.ts` and `platform/queue/queue.test.ts`; the benchmark comparison of the refs before and after (`docs/notes/17-factory-directory.md`) once TL-15's replay harness exists. TL-19 makes a second factory by copying.
+
+### An agent names its contract; the platform never names an agent (TL-18)
+
+`run-issue.sh` used to branch on the code factory's four role names for what each agent is given, which gate it runs under and where its answer goes. Each `agent.md` now names one of four contracts instead, and the script branches on that: `note` (triage), `spec`, `pull-request` (implement) and `review`. The table is in `factories/README.md`. An agent with any name, in any factory, runs under the contract it names, so creating a factory is copying a folder and nothing in `platform/` or `scripts/` changes.
+
+- **Four contracts, not separate fields for input, gate and output.** Each contract couples the three on purpose. A `pull-request` agent always runs under the checks and the description gate, and a `review` agent always gets only the spec and the diff and is always citation-gated. Separate fields would let a definition, which the meta-factory may edit, open a PR with no gate, or review with the author's context. A combination nobody has run is a new contract, added to `platform/agents/agent.ts` and `run-issue.sh` together.
+- **The contract lives in `agent.md`, not `trigger.yaml`.** It says what the agent is given and what its answer is, which belongs to the agent; the trigger says only when it starts and where success leads.
+- **Skills by layout.** Each `agents/<agent>/skills/*/SKILL.md` is appended to that agent's prompt, without front matter, so a copied review agent brings its cite-standards skill along. The factory's `skills/pr-description/` is appended by the `pull-request` contract, because that contract's gate enforces it. A factory-root skill is not appended to every agent, though Warp's layout says so: the code factory's one root skill has a reviewer part that the review agent must not see (TL-7), and appending it to triage and spec would only add tokens.
+- **No behaviour change for the code factory.** Each agent was replayed through `main`'s script and this one with a fake `claude`. The arguments, system prompts, `settings.json` and prompts matched byte for byte, and `run.json` gained only `contract` (`docs/notes/18-shared-platform.md`).
+- **Platform tests use their own factories.** The queue's wording, the replay and the agent parser are tested on fixtures, so deleting `factories/code/` leaves every platform test passing. `platform/factory/definitions.test.ts` checks whichever factories exist: each reads, each `agent.md` parses, a factory with a `pull-request` agent has the skill that contract appends, and each holds only Markdown and YAML, so no queue, log or gate code can land in one.
+
+Not yet: the replay harness (`platform/bench/`) still chains a case's stages by the code factory's agent names, and the benchmark's cases name those agents. A second factory with a benchmark of its own needs the harness to chain by contract, which is a follow-up of its own.
+
+Tested by: TL-18 (`docs/notes/18-shared-platform.md`).
 
 ### The meta-factory edits only definitions (TL-22)
 
