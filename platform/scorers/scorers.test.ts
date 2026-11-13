@@ -111,8 +111,14 @@ test("tests scores 0 for an implement run that handed off nothing, and leaves ot
 
 test(
   "tests runs the case's checks on the base plus the patch, with the base's scripts, in the sandbox",
-  // The checks run under srt, which cannot start inside the gate's own sandbox.
-  { skip: process.env.SANDBOX_RUNTIME === "1" && "srt cannot run inside the gate's sandbox" },
+  // The checks run under srt, which GitHub's Ubuntu runners cannot start (no user namespaces for bubblewrap, as in
+  // gates.test.ts) and which cannot start inside the gate's own sandbox.
+  {
+    skip:
+      process.platform !== "darwin"
+        ? "the sandbox tests need macOS"
+        : process.env.SANDBOX_RUNTIME === "1" && "srt cannot run inside the gate's sandbox",
+  },
   () => {
     const repo = mkdtempSync(join(tmpdir(), "scorer-repo-"));
     const git = (...args: string[]) => execFileSync("git", ["-C", repo, ...args], { encoding: "utf8" }).trim();
