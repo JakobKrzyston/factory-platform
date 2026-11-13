@@ -16,6 +16,8 @@ factories/<name>/
 
 `platform/factory/factory.ts` reads `factory.yaml` and the triggers, and refuses a factory whose files are missing or malformed or whose chain does not end with a human. `platform/agents/agent.ts` reads `agent.md`. Both refuse an unknown field.
 
+`pnpm validate-factory factories/<name>` checks a whole factory before it merges (TL-20, `platform/factory/validate.ts`). It runs what the readers refuse, and also checks that every `agent.md` and `scorer.md` parses, that a `pull-request` agent's factory has `skills/pr-description/`, that every folder under `scorers/` holds a `scorer.md` naming a measure that exists, that every file is Markdown or YAML, and that no line looks like a secret. It prints each problem with its file and exits 1. CI runs it on every factory in every pull request, and `pnpm test` runs it too, so the stop hook refuses a broken factory as well.
+
 ## The YAML files
 
 `factory.yaml` and `trigger.yaml` are plain `key: value` lines. A value may be double-quoted, a list is written `[a, b]`, and a line starting with `#` is a comment. Nothing else (no nesting, no multi-line values), so a YAML 1.2 parser reads them the same way as the platform's reader. Quote a value YAML would read as a number, such as the colour `"5319E7"`.
