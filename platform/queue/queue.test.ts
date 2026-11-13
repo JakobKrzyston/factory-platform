@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
 
-import { readFactories } from "../factory/factory";
+import { END, type Factory, readFactories, type Trigger } from "../factory/factory";
 import { claimRefusal, labelChanges, mergedFactoryPr, moveRefusal, report } from "./queue";
 
 test("a transition swaps the old factory label for the new one and keeps other labels", () => {
@@ -59,60 +59,73 @@ test("an issue is done only when the factory's own pull request for it merged", 
   assert.equal(mergedFactoryPr([pr("factory/issue-1-20261111T000000Z")], "1"), "https://x/factory/issue-1-20261111T000000Z");
 });
 
-const code = readFactories().find((factory) => factory.name === "code");
-assert.ok(code, "factories/code/ is missing");
-const trigger = (name: string) => {
-  const found = code.triggers.find((t) => t.name === name);
-  assert.ok(found, `factories/code/triggers/${name}/ is missing`);
-  return found;
-};
+// A factory of the test's own, so the queue's wording is tested apart from any factory in factories/ (TL-18).
+const trigger = (name: string, label: string, agent: string, next: string, comment: string, question: string | null = null): Trigger => ({
+  name,
+  on: "label",
+  label,
+  agent,
+  next,
+  color: "0E8A16",
+  description: `Starts ${agent}.`,
+  comment,
+  question,
+});
+const go = trigger("go", "factory:go", "plan", "factory:build", "**Plan**\n\n{output}\n\n_The plan agent. [Run log]({run_url})_\n");
+const build = trigger(
+  "build",
+  "factory:build",
+  "build",
+  "factory:check",
+  "The build agent opened {output}. [Run log]({run_url})\n",
+  "If your answer changes the plan, add `factory:go` instead.\n",
+);
+const check = trigger("check", "factory:check", "check", END, "{output}\n");
+const demo: Factory = { name: "demo", repositories: ["o/r"], foreman: "plan", agents: ["build", "check", "plan"], triggers: [build, check, go] };
 const RUN = "https://github.com/o/r/actions/runs/1";
 
-test("a successful triage posts its note under a heading and starts the spec agent", () => {
-  assert.deepEqual(report(code, trigger("ready"), 0, "Small docs fix.\n", RUN), {
-    to: "factory:spec",
-    comment: `**Triage**\n\nSmall docs fix.\n\n_The factory's triage agent. [Run log](${RUN})_\n`,
+test("a success posts the trigger's comment, with the output and run filled in, and moves to its next label", () => {
+  assert.deepEqual(report(demo, go, 0, "Small docs fix.\n", RUN), {
+    to: "factory:build",
+    comment: `**Plan**\n\nSmall docs fix.\n\n_The plan agent. [Run log](${RUN})_\n`,
+  });
+  assert.deepEqual(report(demo, build, 0, "https://github.com/o/r/pull/2\n", RUN), {
+    to: "factory:check",
+    comment: `The build agent opened https://github.com/o/r/pull/2. [Run log](${RUN})\n`,
   });
 });
 
-test("a successful implement links its PR and starts the review agent", () => {
-  assert.deepEqual(report(code, trigger("implement"), 0, "https://github.com/o/r/pull/2\n", RUN), {
-    to: "factory:review",
-    comment: `The implement agent opened https://github.com/o/r/pull/2. [Run log](${RUN})\n`,
-  });
-});
-
-test("a successful review hands the issue to a human", () => {
-  assert.equal(report(code, trigger("review"), 0, "https://github.com/o/r/pull/2", RUN).to, "factory:in-review");
+test("the last trigger's success hands the issue to a human", () => {
+  assert.equal(report(demo, check, 0, "https://github.com/o/r/pull/2", RUN).to, END);
 });
 
 test("output that looks like a placeholder is posted as written", () => {
-  assert.match(report(code, trigger("spec"), 0, "see {run_url}", RUN).comment, /^see \{run_url\}\n/);
+  assert.match(report(demo, check, 0, "see {run_url}", RUN).comment, /^see \{run_url\}\n/);
 });
 
-test("a question is quoted, says which label to add again, and only implement's says when to re-spec", () => {
-  const triage = report(code, trigger("ready"), 3, "Which file?\n\nOr both?\n", RUN);
-  assert.equal(triage.to, "factory:needs-human");
+test("a question is quoted, says which label to add again, and adds the trigger's question.md if it has one", () => {
+  const plan = report(demo, go, 3, "Which file?\n\nOr both?\n", RUN);
+  assert.equal(plan.to, "factory:needs-human");
   assert.equal(
-    triage.comment,
-    `The factory's triage agent stopped to ask a question:\n\n> Which file?\n> \n> Or both?\n\nAnswer in a comment here, then add \`factory:ready\` again. [Run log](${RUN})\n`,
+    plan.comment,
+    `The factory's plan agent stopped to ask a question:\n\n> Which file?\n> \n> Or both?\n\nAnswer in a comment here, then add \`factory:go\` again. [Run log](${RUN})\n`,
   );
-  const implement = report(code, trigger("implement"), 3, "Which file?\n", RUN).comment;
-  assert.match(implement, /add `factory:implement` again/);
-  assert.match(implement, /\n\nIf your answer changes the spec, add `factory:spec` instead/);
+  const built = report(demo, build, 3, "Which file?\n", RUN).comment;
+  assert.match(built, /add `factory:build` again/);
+  assert.match(built, /\n\nIf your answer changes the plan, add `factory:go` instead\.\n$/);
 });
 
 test("an incomplete description lists what is missing and names the next trigger", () => {
-  const { to, comment } = report(code, trigger("implement"), 4, "https://github.com/o/r/pull/2\nno Risk section\nno Evidence\n", RUN);
+  const { to, comment } = report(demo, build, 4, "https://github.com/o/r/pull/2\nno Risk section\nno Evidence\n", RUN);
   assert.equal(to, "factory:needs-human");
-  assert.match(comment, /^The implement agent opened https:\/\/github.com\/o\/r\/pull\/2, but its description is not ready for review:\n\n- no Risk section\n- no Evidence\n\n/);
-  assert.match(comment, /add `factory:review` to start the review agent, or merge it\. Or close the pull request and add `factory:implement` to run again\./);
+  assert.match(comment, /^The build agent opened https:\/\/github.com\/o\/r\/pull\/2, but its description is not ready for review:\n\n- no Risk section\n- no Evidence\n\n/);
+  assert.match(comment, /add `factory:check` to start the check agent, or merge it\. Or close the pull request and add `factory:build` to run again\./);
 });
 
 test("any other exit is a failure that says which label retries it", () => {
-  assert.deepEqual(report(code, trigger("spec"), 1, "", RUN), {
+  assert.deepEqual(report(demo, go, 1, "", RUN), {
     to: "factory:needs-human",
-    comment: `The factory's spec agent failed (exit 1). See the [run log](${RUN}), then add \`factory:spec\` to try this step again.\n`,
+    comment: `The factory's plan agent failed (exit 1). See the [run log](${RUN}), then add \`factory:go\` to try this step again.\n`,
   });
 });
 

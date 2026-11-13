@@ -61,7 +61,7 @@ jobs:
       - name: pnpm runs in a sandbox that denies the home directory but allows pnpm's install
         run: |
           source scripts/agent-settings.sh
-          allow=$(agent_settings implement /no-key /no-git '{}' | jq -c .sandbox.filesystem.allowRead)
+          allow=$(agent_settings pull-request /no-key /no-git '{}' | jq -c .sandbox.filesystem.allowRead)
           echo "PNPM_HOME=$PNPM_HOME allowRead=$allow"
           ls -la "$PNPM_HOME"
           srt_cli=$PWD/node_modules/@anthropic-ai/sandbox-runtime/dist/cli.js

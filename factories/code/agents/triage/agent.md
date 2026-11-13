@@ -1,5 +1,6 @@
 ---
 description: Decides whether an issue is fit for an unattended run before any expensive agent starts.
+contract: note
 model: haiku
 tools: Bash, Read
 budget_usd: 0.5

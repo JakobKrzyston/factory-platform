@@ -124,7 +124,7 @@ run_dir=$(dirname "$settings")
 printf '%s\\n' "\${args[@]}" > "$run_dir/args.txt"
 cat > /dev/null
 git log --all --format=%H > "$run_dir/history.txt"
-if [[ $(jq -r .role "$run_dir/run.json") == review ]]; then
+if [[ $(jq -r .contract "$run_dir/run.json") == review ]]; then
   result=$'## Findings\\n\\nNone.'
 else
   echo '{"passed": true, "checks": [], "description_problems": []}' >> "$run_dir/gates.jsonl"
@@ -149,6 +149,21 @@ test(
       if (existsSync(join(REPO_ROOT, file))) cpSync(join(REPO_ROOT, file), join(root, file), { recursive: true });
     }
     symlinkSync(join(REPO_ROOT, "node_modules"), join(root, "node_modules"));
+    // A factory of the test's own, whose agents are named for nothing run-issue.sh knows: their contracts pick
+    // what each is given and what becomes of its answer (TL-18).
+    const agent = (contract: string, tools: string) =>
+      `---\ndescription: A test agent.\ncontract: ${contract}\nmodel: fake\ntools: ${tools}\nbudget_usd: 1\ntime_limit_seconds: 60\n---\nDo the ${contract}.\n`;
+    const demo = {
+      "agents/build/agent.md": agent("pull-request", "Bash, Edit, Read, Write"),
+      "agents/check/agent.md": agent("review", "Bash, Read"),
+      "agents/check/skills/cite/SKILL.md": "---\nname: cite\n---\nCite the check skill.\n\n---\n\nAfter a rule.\n",
+      "agents/check/skills/plain/SKILL.md": "A skill without front matter.\n",
+      "skills/pr-description/SKILL.md": "Describe the build skill.\n",
+    };
+    for (const [path, text] of Object.entries(demo)) {
+      mkdirSync(dirname(join(root, "factories/demo", path)), { recursive: true });
+      writeFileSync(join(root, "factories/demo", path), text);
+    }
     sh(root, "git", "init", "--quiet");
     writeFileSync(join(root, ".git/info/exclude"), "node_modules\n");
     sh(root, "git", "add", "-A");
@@ -179,28 +194,38 @@ test(
     write("git", `#!/usr/bin/env bash\necho "git $*" >> "${calls}"\nexec "${sh(work, "which", "git")}" "$@"\n`);
     write("claude", FAKE_CLAUDE);
 
-    const replay = (role: string, patch: string) => {
-      const file = join(work, `${role}.json`);
+    const replay = (agent: string, patch: string) => {
+      const file = join(work, `${agent}.json`);
       const spec = { user: { login: "factory" }, body: "<!-- factory:spec -->\n\nWrite replayed.txt." };
       writeFileSync(file, JSON.stringify({ source: target, base: "main", base_sha: baseSha, title: "T", body: "B", comments: [spec], patch }));
-      return spawnSync("bash", [join(root, "scripts/run-issue.sh"), role, "https://github.com/o/r/issues/7"], {
-        env: { PATH: `${bin}:${process.env.PATH}`, HOME: process.env.HOME, ANTHROPIC_API_KEY: "test", DATABASE_URL: "", REPLAY: file },
+      return spawnSync("bash", [join(root, "scripts/run-issue.sh"), agent, "https://github.com/o/r/issues/7"], {
+        env: { PATH: `${bin}:${process.env.PATH}`, HOME: process.env.HOME, ANTHROPIC_API_KEY: "test", DATABASE_URL: "", REPLAY: file, FACTORY: "demo" },
         encoding: "utf8",
       });
     };
 
-    const implement = replay("implement", "");
-    assert.equal(implement.status, 0, implement.stderr);
-    const patch = implement.stdout.trim();
+    const build = replay("build", "");
+    assert.equal(build.status, 0, build.stderr);
+    const patch = build.stdout.trim();
     assert.match(readFileSync(patch, "utf8"), /\+\+\+ b\/replayed.txt/);
     assert.equal(readFileSync(join(dirname(patch), "history.txt"), "utf8").trim(), baseSha);
-    // Each role gets the file tools its agent.md lists, confined to the clone; implement creates files with Write (#67).
+    // Each agent gets the file tools its agent.md lists, confined to the clone; a pull-request agent creates files
+    // with Write (#67).
     assert.deepEqual(allowedTools(dirname(patch)), ["Read(./**)", "Edit(./**)", "Write(./**)"]);
-    const review = replay("review", patch);
-    assert.equal(review.status, 0, review.stderr);
-    assert.match(readFileSync(review.stdout.trim(), "utf8"), /## Findings/);
-    // Review, which lists neither Edit nor Write, can only read.
-    assert.deepEqual(allowedTools(dirname(review.stdout.trim())), ["Read(./**)"]);
+    // The pull-request contract hands the agent the factory's pr-description skill, whose gate it runs under.
+    const buildArgs = readFileSync(join(dirname(patch), "args.txt"), "utf8");
+    assert.match(buildArgs, /Do the pull-request\.\n\nWrite the pull request description as this skill says:\n\nDescribe the build skill\./);
+    assert.match(readFileSync(join(dirname(patch), "settings.json"), "utf8"), /stop-hook\.ts/);
+    const check = replay("check", patch);
+    assert.equal(check.status, 0, check.stderr);
+    assert.match(readFileSync(check.stdout.trim(), "utf8"), /## Findings/);
+    // The reviewer, which lists neither Edit nor Write, can only read, and gets its own skills without their front
+    // matter, then the standing rules its citation gate checks.
+    assert.deepEqual(allowedTools(dirname(check.stdout.trim())), ["Read(./**)"]);
+    const checkArgs = readFileSync(join(dirname(check.stdout.trim()), "args.txt"), "utf8");
+    assert.match(checkArgs, /Do the review\.\n\nCite the check skill\.\n\n---\n\nAfter a rule\.\n\nA skill without front matter\.\n\n# Standing rules/);
+    assert.doesNotMatch(checkArgs, /name: cite|Describe the build skill/);
+    assert.match(readFileSync(join(dirname(check.stdout.trim()), "settings.json"), "utf8"), /standards\.ts review-hook/);
 
     const log = readFileSync(calls, "utf8");
     assert.doesNotMatch(log, /^gh /m);
@@ -211,8 +236,8 @@ test(
     assert.deepEqual(
       rows.map((r) => ({ ...r })),
       [
-        { role: "implement", status: "done", benchmark: 1, checks_passed: 1, cost_usd: 0.01 },
-        { role: "review", status: "done", benchmark: 1, checks_passed: null, cost_usd: 0.01 },
+        { role: "build", status: "done", benchmark: 1, checks_passed: 1, cost_usd: 0.01 },
+        { role: "check", status: "done", benchmark: 1, checks_passed: null, cost_usd: 0.01 },
       ],
     );
     assert.deepEqual(await readRuns(db), []);

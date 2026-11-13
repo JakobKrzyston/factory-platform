@@ -1,5 +1,6 @@
 ---
 description: Builds the spec in a confined clone and hands in a change that passes the repository's checks.
+contract: pull-request
 model: sonnet
 tools: Bash, Edit, Read, Write
 budget_usd: 5
