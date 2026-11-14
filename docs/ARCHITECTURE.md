@@ -193,7 +193,7 @@ Following Warp's layout: a resource's name is its path, exactly one agent per fa
 
 Not yet: triggers other than a label (a schedule, a PR opened) are an `on` value nothing accepts yet.
 
-Tested by: `platform/factory/factory.test.ts` and `platform/queue/queue.test.ts`; the benchmark comparison of the refs before and after (`docs/notes/17-factory-directory.md`) once TL-15's replay harness exists. TL-19 made a second factory, `factories/docs/`, by copying, with no change outside `factories/` (`docs/notes/19-second-factory.md`).
+Tested by: `platform/factory/factory.test.ts` and `platform/queue/queue.test.ts`; the benchmark comparison of the refs before and after (`docs/notes/17-factory-directory.md`) once TL-15's replay harness exists. TL-19 made a second factory, `factories/docs/`, by copying; nothing outside `factories/` had to change for it to run (`docs/notes/19-second-factory.md`).
 
 ### An agent names its contract; the platform never names an agent (TL-18)
 

@@ -44,7 +44,7 @@ flowchart TB
     E -.->|meta-factory proposes changes,<br/>the benchmark must agree| F
 ```
 
-Creating a factory is copying a directory under `factories/`: the docs factory is a copy of the code factory with its agents and triggers edited, and no file outside `factories/` had to change for it to run ([note](docs/notes/19-second-factory.md)). Nothing in `platform/` names a factory. Only the replay harness names agents, the code factory's four roles, so a copy keeps those names.
+Creating a factory is copying a directory under `factories/`: the docs factory is a copy of the code factory with its agents and triggers edited, and no file outside `factories/` had to change for it to run ([note](docs/notes/19-second-factory.md)). Nothing in `platform/` names a factory. The replay harness and the `tests` and `scope` scorers still name the code factory's roles, so a copy keeps those names.
 
 ## Key design decisions
 

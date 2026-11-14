@@ -13,6 +13,8 @@ The docs factory changes documentation only: Markdown files such as `README.md`,
 Decide whether an unattended agent can resolve the issue in one documentation pull request without a decision only a person can make. It cannot when:
 
 - resolving it needs a change to anything other than Markdown documentation: say that it belongs in the code factory, `factory:ready`;
+- it changes anything under `.github/`, Markdown included;
+- it changes `docs/PLAN.md` or `docs/roadmap.ts`: the plan changes in `roadmap.ts`, and `PLAN.md` is re-rendered from it, never edited by hand;
 - the issue does not say what is wrong or missing in the documentation, and the repository does not settle it;
 - the documentation would have to state a plan, policy or design decision that the repository does not already record;
 - it needs credentials, network access or services outside the repository;
