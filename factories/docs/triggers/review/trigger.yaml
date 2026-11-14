@@ -1,0 +1,7 @@
+# The last trigger: its success hands the pull request to a human.
+on: label
+label: factory:docs-review
+agent: review
+next: factory:in-review
+color: "E4E669"
+description: A docs pull request is open. Adding this label starts the docs factory's review agent.

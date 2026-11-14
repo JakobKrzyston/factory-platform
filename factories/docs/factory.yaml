@@ -1,0 +1,4 @@
+# The docs factory: a labelled documentation issue in, a reviewed documentation pull request out. A copy of
+# factories/code/ (TL-19). Every field: factories/README.md.
+repositories: [JakobKrzyston/factory-platform]
+foreman: triage
