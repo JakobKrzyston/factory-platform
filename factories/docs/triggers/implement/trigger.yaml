@@ -1,0 +1,6 @@
+on: label
+label: factory:docs-implement
+agent: implement
+next: factory:docs-review
+color: "C5DEF5"
+description: Specified for the docs factory. Adding this label starts its implement agent.

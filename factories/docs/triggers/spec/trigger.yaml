@@ -1,0 +1,6 @@
+on: label
+label: factory:docs-spec
+agent: spec
+next: factory:docs-implement
+color: "BFDADC"
+description: Triaged for the docs factory. Adding this label starts its spec agent.
