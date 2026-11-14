@@ -22,7 +22,8 @@
     "queue": "tsx platform/queue/queue.ts",
     "standards": "tsx platform/standards/standards.ts",
     "bench": "tsx --env-file-if-exists=.env.local platform/bench/bench.ts",
-    "check-webhook": "tsx --env-file-if-exists=.env.local platform/health/webhook.ts"
+    "check-webhook": "tsx --env-file-if-exists=.env.local platform/health/webhook.ts",
+    "validate-factory": "tsx platform/factory/validate.ts"
   },
   "devDependencies": {
     "@biomejs/biome": "2.6.6",

@@ -18,7 +18,7 @@ It is a public portfolio project. Every decision must be explainable in an inter
 2. **One idea per stage.** A PR implements one `TL-n` requirement. Anything else becomes a ticket.
 3. **Guidance plus gates.** Prompts and skills make good output likely; hooks and checks make bad output impossible to hand in. Add both or neither.
 4. **Every run is logged** once TL-11 exists: factory, role, issue, model, tokens, cost, wall time, checks, review findings, rework.
-5. **Factories are data.** Everything under `factories/` is a definition, validated by `scripts/validate-factory`, and is the only thing the meta-factory may change. Nothing under `factories/` contains queue, log or gate code; that lives in `platform/`.
+5. **Factories are data.** Everything under `factories/` is a definition, validated by `pnpm validate-factory`, and is the only thing the meta-factory may change. Nothing under `factories/` contains queue, log or gate code; that lives in `platform/`.
 6. **Benchmark before belief.** A change to a prompt, model or gate is judged by a benchmark run, not by one good result.
 7. **Secrets never enter the repo.** Keys live in GitHub Actions secrets or `.env.local`; new variables go in `.env.example` with a comment.
 

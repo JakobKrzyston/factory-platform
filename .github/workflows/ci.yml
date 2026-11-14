@@ -25,6 +25,9 @@ jobs:
         run: pnpm lint
       - name: test
         run: pnpm test
+      # TL-20. Every PR, not only those touching factories/: a path filter would leave this required check unrun.
+      - name: factory definitions
+        run: pnpm validate-factory factories/*/
       - name: PLAN.md matches docs/roadmap.ts
         run: pnpm plan && git diff --exit-code docs/PLAN.md
 
