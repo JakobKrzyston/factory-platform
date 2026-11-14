@@ -24,6 +24,7 @@ flowchart LR
 - **Triage** sizes the work, **spec** plans it, **implement** opens a draft PR, **review** comments on it having seen only the spec and the diff.
 - A role that hits a question stops at `factory:needs-human` with a comment. Answer it and re-add the label.
 - The factory can open a PR but can never approve or merge one.
+- For a change to documentation only, add `factory:docs` instead. The docs factory runs the same four roles with prompts for documentation, and its labels are `factory:docs-spec`, `factory:docs-implement` and `factory:docs-review` (TL-19).
 
 ## The layers
 
@@ -43,7 +44,7 @@ flowchart TB
     E -.->|meta-factory proposes changes,<br/>the benchmark must agree| F
 ```
 
-Creating a factory is copying a directory under `factories/`. Nothing in `platform/` names an agent or a factory.
+Creating a factory is copying a directory under `factories/`: the docs factory is a copy of the code factory with its agents and triggers edited, and no file outside `factories/` had to change for it to run ([note](docs/notes/19-second-factory.md)). Nothing in `platform/` names a factory. Only the replay harness names agents, the code factory's four roles, so a copy keeps those names.
 
 ## Key design decisions
 

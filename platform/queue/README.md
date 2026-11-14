@@ -2,7 +2,7 @@
 
 The factory's work queue is GitHub issue labels. An issue's one `factory:*` label is its state, so every transition is a label change in the issue's timeline, made by the factory App.
 
-Some labels start an agent (TL-7): each factory's triggers, `factories/<name>/triggers/` (TL-17). The code factory has four. Adding the label starts that role; while it works the issue is `in-progress`; when it succeeds the factory adds the next label, which starts the next role:
+Some labels start an agent (TL-7): each factory's triggers, `factories/<name>/triggers/` (TL-17). The code factory has four, below; the docs factory has four more, `factory:docs`, `factory:docs-spec`, `factory:docs-implement` and `factory:docs-review`, in the same chain (TL-19). Adding the label starts that role; while it works the issue is `in-progress`; when it succeeds the factory adds the next label, which starts the next role:
 
 ```
  human adds

@@ -2,6 +2,8 @@
 
 One folder per factory. A factory is data: every file here is a definition, and the code that reads and runs it lives in `platform/` (rule 5 in `CLAUDE.md`). A resource's name is its path: the factory is named by its folder, each agent by its folder under `agents/`, each trigger by its folder under `triggers/`. Creating a factory is copying a folder; splitting one is moving agent and trigger folders.
 
+There are two: [`code/`](code/README.md), the first, and [`docs/`](docs/README.md), a copy of it for documentation-only changes (TL-19). Both serve this repository, so no trigger label may be both's: `platform/factory/definitions.test.ts` checks that each label starts only its own factory.
+
 ```
 factories/<name>/
   factory.yaml                      which repositories it serves, which agent is the foreman
