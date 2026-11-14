@@ -77,6 +77,15 @@ Documentation rather than frontend verification, because this repository has no 
 
 Total: $0.20 and 85s for the docs chain, plus $0.0015 for the code-issue triage.
 
+**Triage again, after review.** A code review of this branch found that triage let Markdown under `.github/` and edits to `docs/PLAN.md` through. Triage now stops on both, so its replays were run again on the new prompt, one at a time:
+
+| Issue | Outcome | Cost | Triage said |
+| --- | --- | --- | --- |
+| the docs issue above | done | $0.004 | a triage note naming the same pages |
+| case 52, a test | needs_human | $0.004 | a test is code, for `factory:ready`; it also noticed the issue's premise is gone since TL-17 |
+| reword the Risk hint in `.github/pull_request_template.md` | needs_human | $0.001 | the docs factory never changes `.github/`; it asked whether to send the issue to `factory:ready` |
+| reword a TL-21 criterion in `docs/PLAN.md` | needs_human | $0.001 | the wording lives in `docs/roadmap.ts` and `PLAN.md` is rendered from it, so it is a plan change |
+
 **What that shows, and what it does not.** One issue per path proves that the docs factory runs and that its prompts change what the agents do. Triage turns code away, spec names sources, and implement stays on the named pages. It says nothing about how often they do. That needs docs cases in the benchmark, which is follow-up 2. The reviewer's shortcut of trusting the spec's citations for three facts is a single run. If benchmark runs show it again, the review prompt is the place to fix it.
 
 **Not checked here: the live workflow.** `issues` events run the workflow from `main`, and the `factory` environment deploys from `main` only. So the docs labels first start a run once this branch merges and `pnpm queue setup JakobKrzyston/factory-platform` has created them. The first live `factory:docs` issue completes the first acceptance criterion on GitHub itself.
