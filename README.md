@@ -88,6 +88,7 @@ cp .env.example .env.local   # set ANTHROPIC_API_KEY
 # run one agent on one issue: triage, spec, implement or review
 scripts/run-issue.sh <agent> https://github.com/<owner>/<repo>/issues/<n>
 
+pnpm queue status <owner/repo>    # what is waiting on you
 pnpm dashboard                    # cost, time, gate pass rate and rework, from the run log
 pnpm bench <factory> <git-ref>    # replay the benchmark against a factory version
 pnpm standards collect            # gather last week's human review comments as draft rules
