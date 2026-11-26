@@ -196,3 +196,9 @@ jobs:
           GH_TOKEN: ${{ steps.app.outputs.token }}
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: pnpm exec tsx platform/runlog/runlog.ts rework "${{ github.repository }}" "${{ github.event.issue.number }}"
+      # After `done` above, so the done label is in the issue's events.
+      - name: Record waiting time
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: pnpm exec tsx platform/queue/queue.ts dwell "${{ github.repository }}" "${{ github.event.issue.number }}"

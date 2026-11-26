@@ -124,7 +124,9 @@ TL-11 added the columns a run needs to be reconstructed from its row and its PR:
 
 The writer is `platform/runlog/runlog.ts`, called by the script and the workflow rather than by Claude Code hooks (TL-12). Hooks run in the agent's environment, which `run-issue.sh` empties to `PATH` and `HOME` so nothing secret can reach a public PR; a hook that wrote rows would need `DATABASE_URL` there. The script also already holds what a row needs: the transcript, the gate log and the PR. It inserts the row first, before anything that can fail, and ends it from an `EXIT` trap, so every exit writes an outcome. The workflow's last step ends any row still running as `failed`, with whatever the run's directory holds, for a script that was killed or cancelled, and its `done` job sets `rework` by comparing each merged PR's head with the commit the run handed off. A workflow run's row id is `github-<run id>-<attempt>`, so rows and Actions runs join directly. Tokens and cost are Claude Code's own report, summed over every model the run called.
 
-Tested by: TL-11, TL-12 (`docs/notes/12-run-log-rows.md`). The dashboard (TL-13) only reads this table.
+The log holds waiting time as well as run time (#86). Agent runs are minutes; most of an issue's elapsed time is spent between them, waiting for a person to answer a question or merge a PR. `transitions` has one row per stretch an issue carried a `factory:*` label, with its start, end and seconds. The `done` job writes them from the issue's label events (`pnpm queue dwell`) when the issue closes. They come from GitHub's event history rather than being written at each move, so a backfill covers every issue already finished, and a missed write is repaired by running the command again.
+
+Tested by: TL-11, TL-12 (`docs/notes/12-run-log-rows.md`). The dashboard (TL-13) only reads these tables.
 
 ### The dashboard is a static page rendered from the run log (TL-13)
 

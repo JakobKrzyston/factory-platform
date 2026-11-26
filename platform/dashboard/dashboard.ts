@@ -1,6 +1,7 @@
 /** Renders the cost and rework dashboard from the run log: cost per PR, time per stage, pass rate at each gate
- *  and rework rate, per factory and per week, and the benchmark's scores (TL-16), as one self-contained HTML page.
- *  Exports readRuns, readScores, weekOf, weeklyMetrics and renderDashboard. Postgres when DATABASE_URL is set, otherwise SQLite in .runlog/.
+ *  and rework rate, per factory and per week, where issues wait between runs (#86), and the benchmark's scores
+ *  (TL-16), as one self-contained HTML page.
+ *  Exports readRuns, readScores, readWaits, weekOf, weeklyMetrics and renderDashboard. Postgres when DATABASE_URL is set, otherwise SQLite in .runlog/.
  *
  *  tsx platform/dashboard/dashboard.ts [out.html]        default .runlog/dashboard.html */
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
@@ -84,6 +85,23 @@ export async function readScores(db: RunLog): Promise<ScoreRow[]> {
     scorer: r.scorer as string,
     score: Number(r.score),
     reason: r.reason as string,
+  }));
+}
+
+/** One ended stretch during which an issue carried a factory label (#86). */
+export type Wait = { label: string; entered_at: Date; seconds: number };
+
+/** Reads every ended stretch from `transitions`. One that has not ended has no length yet, so it is left out.
+ *  Args: db: the run log.
+ *  Returns: the stretches, oldest first. */
+export async function readWaits(db: RunLog): Promise<Wait[]> {
+  const rows = await db.query(
+    "SELECT label, entered_at, seconds FROM transitions WHERE seconds IS NOT NULL ORDER BY entered_at, label",
+  );
+  return rows.map((r) => ({
+    label: r.label as string,
+    entered_at: new Date(r.entered_at as string | Date),
+    seconds: Number(r.seconds),
   }));
 }
 
@@ -265,6 +283,32 @@ function table(weeks: Week[], roles: string[]): string {
   return `<details><summary>Table</summary><table><thead><tr>${head.map((h) => `<th>${h}</th>`).join("")}</tr></thead><tbody>${rows}</tbody></table></details>`;
 }
 
+/** Where issues wait: one row per UTC week a stretch began, one column per factory label, and in each cell the
+ *  median hours of that week's stretches with how many there were. */
+function waitsSection(waits: Wait[]): string {
+  // Columns in the order the labels first appear, which follows the chain. Ties sort by label in code, not SQL,
+  // because SQLite and Postgres collate text differently and the page must not depend on the database.
+  const byStart = [...waits].sort((a, b) => a.entered_at.getTime() - b.entered_at.getTime() || (a.label < b.label ? -1 : 1));
+  const labels = [...new Set(byStart.map((w) => w.label))];
+  const weeks = [...new Set(waits.map((w) => weekOf(w.entered_at)))].sort();
+  const rows = weeks
+    .map((week) => {
+      const cells = labels.map((label) => {
+        const hours = waits.filter((w) => w.label === label && weekOf(w.entered_at) === week).map((w) => w.seconds / 3600);
+        return `<td>${hours.length ? `${median(hours).toFixed(2)} h (${hours.length})` : "–"}</td>`;
+      });
+      return `<tr><td>${week}</td>${cells.join("")}</tr>`;
+    })
+    .join("");
+  const head = ["Week", ...labels.map((l) => escapeHtml(l.replace(/^factory:/, "")))];
+  const body = waits.length
+    ? `<table><thead><tr>${head.map((h) => `<th>${h}</th>`).join("")}</tr></thead><tbody>${rows}</tbody></table>`
+    : `<p class="empty">No waiting time in the run log yet: run <code>pnpm queue dwell &lt;owner/repo&gt; --all</code>.</p>`;
+  return `<section><h2>Where issues wait</h2>
+<p class="sub">How long issues carried each <code>factory:*</code> label, by the week (UTC) the stretch began: the median in hours, and how many stretches. <code>done</code> is added after the issue closes, so its count is the issues finished.</p>
+${body}</section>`;
+}
+
 /** The benchmark's scores: per factory, a table with one row per factory version benchmarked, newest first, and
  *  each scorer's mean over that version's runs; then every score with its reason. */
 function scoresSection(scores: ScoreRow[]): string {
@@ -312,9 +356,9 @@ ${body}</section>`;
 
 /** Renders the dashboard as one HTML page with no external resources.
  *  Args: dashboard: from weeklyMetrics; generatedAt: when the run log was read; scores: from readScores, shown
- *  after the production charts.
+ *  last; waits: from readWaits, shown between the production charts and the scores.
  *  Returns: the page. */
-export function renderDashboard(dashboard: Dashboard, generatedAt: Date, scores: ScoreRow[]): string {
+export function renderDashboard(dashboard: Dashboard, generatedAt: Date, scores: ScoreRow[], waits: Wait[]): string {
   const { weeks, roles } = dashboard;
   // A role keeps its colour across every factory and chart.
   const slot = (role: string) => roles.indexOf(role) + 1;
@@ -382,6 +426,7 @@ h3 { font-size: 15px; margin: 16px 0 4px; } code { font: 12px ui-monospace, SFMo
 <h1>Factory dashboard</h1>
 <p class="sub">Production runs from the run log, by the week they started (UTC). Generated ${generatedAt.toISOString().slice(0, 16).replace("T", " ")} UTC.</p>
 ${sections || `<p class="empty">No finished production runs in the run log yet.</p>`}
+${waitsSection(waits)}
 ${scoresSection(scores)}
 </main></body></html>
 `;
@@ -395,7 +440,7 @@ if (import.meta.url === pathToFileURL(process.argv[1]).href) {
   }
   const db = await openRunLog(process.env.DATABASE_URL, DEFAULT_SQLITE_PATH, true);
   try {
-    const html = renderDashboard(weeklyMetrics(await readRuns(db)), new Date(), await readScores(db));
+    const html = renderDashboard(weeklyMetrics(await readRuns(db)), new Date(), await readScores(db), await readWaits(db));
     mkdirSync(dirname(out), { recursive: true });
     writeFileSync(out, html);
     console.log(out);

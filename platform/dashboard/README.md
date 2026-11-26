@@ -26,10 +26,16 @@ The run log records whether all gates passed, not which one failed. Per-check pa
 
 The table under each factory's charts holds the same numbers, for screen readers and for copying into a note.
 
+## Where issues wait
+
+After the production charts, a table shows the `transitions` table (#86): how long issues carried each `factory:*` label. One row per UTC week a stretch began, one column per label, and in each cell the median hours of that week's stretches with how many there were. Only stretches that have ended count; one that has not has no length yet. The agent's own time is the `in-progress` column, so the gap between it and the rest is time spent waiting on a person or a queue. `done` is added after the issue closes, so its stretches are 0 hours and its count is the issues finished that week.
+
+It is a table, not a chart, until there are weeks of data. It needs migration 003 (`transitions`), like the scores need 002: see below.
+
 ## Benchmark scores
 
-After the production charts, a section shows the `scores` table (TL-16), for benchmark runs only. Per factory, one row per factory version benchmarked (`factory_sha`, newest first), with the date of its first scored run, how many runs were scored, and each scorer's mean over the runs it graded, with how many that was. A version's every score, with its issue, role and reason, is in a collapsed table under it. A version benchmarked several times is one row, so its means pool the runs.
+After where issues wait, a section shows the `scores` table (TL-16), for benchmark runs only. Per factory, one row per factory version benchmarked (`factory_sha`, newest first), with the date of its first scored run, how many runs were scored, and each scorer's mean over the runs it graded, with how many that was. A version's every score, with its issue, role and reason, is in a collapsed table under it. A version benchmarked several times is one row, so its means pool the runs.
 
 It is a table, not a chart: versions are not a time axis, and two versions benchmarked on one day would sit on top of each other. A mean hides a case that got worse while another got better; the collapsed table is where to look.
 
-The dashboard opens the run log read-only and applies no migrations, so it needs `scores` to exist: run `pnpm runlog:migrate`, or any factory run or `pnpm bench`, against a run log from before TL-16.
+The dashboard opens the run log read-only and applies no migrations, so it needs `scores` and `transitions` to exist: run `pnpm runlog:migrate`, or any factory run or `pnpm bench`, against a run log from before TL-16 or #86.

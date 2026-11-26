@@ -1,6 +1,6 @@
 /** Tests the run log migration against a throwaway SQLite file. Run: pnpm test */
 import assert from "node:assert/strict";
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -30,8 +30,24 @@ const INSERT_START = `INSERT INTO runs (id, factory, role, factory_sha, model, r
 
 test("applies each migration once", () => {
   const path = join(mkdtempSync(join(tmpdir(), "runlog-")), "nested", "runlog.db");
-  assert.deepEqual(migrateSqlite(path), ["001_runs", "002_scores"]);
+  assert.deepEqual(migrateSqlite(path), ["001_runs", "002_scores", "003_transitions"]);
   assert.deepEqual(migrateSqlite(path), []);
+});
+
+test("applies 003 to a run log that already has 001 and 002", () => {
+  const path = join(mkdtempSync(join(tmpdir(), "runlog-")), "runlog.db");
+  const before = new DatabaseSync(path);
+  before.exec("CREATE TABLE schema_migrations (version TEXT PRIMARY KEY)");
+  for (const version of ["001_runs", "002_scores"]) {
+    before.exec(readFileSync(join(import.meta.dirname, "migrations", `${version}.sql`), "utf8"));
+    before.prepare("INSERT INTO schema_migrations (version) VALUES (?)").run(version);
+  }
+  before.close();
+
+  assert.deepEqual(migrateSqlite(path), ["003_transitions"]);
+  const db = new DatabaseSync(path);
+  db.prepare("INSERT INTO transitions (repo, issue, label, entered_at) VALUES ('o/r', 1, 'factory:ready', ?)").run(START.started_at);
+  assert.throws(() => db.prepare("UPDATE transitions SET seconds = -1").run(), /CHECK constraint failed/);
 });
 
 test("a run is written at start and completed at end", () => {
