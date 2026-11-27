@@ -9,6 +9,7 @@
  *  pnpm queue report <owner/repo> <issue> <factory> <trigger> <exit-code> <output-file> <run-url>
  *  pnpm queue set <owner/repo> <issue> <label> [comment.md]
  *  pnpm queue done <owner/repo> <issue>                  moves a closed issue to done if the factory's PR merged
+ *  pnpm queue status <owner/repo> [--markdown]           lists the open work waiting on a person (read-only)
  *
  *  Needs `gh` signed in: as a repo admin for setup, as the factory App otherwise. */
 import { execFileSync } from "node:child_process";
@@ -18,6 +19,7 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 
 import { END, type Factory, readFactories, route, type Trigger } from "../factory/factory";
+import { statusCommand } from "./status";
 
 /** The states every factory shares. The labels that start agents are each factory's triggers. */
 export const STATES = {
@@ -199,8 +201,14 @@ function setup(repo: string): void {
   console.log("\nNow set its secrets: gh secret set ANTHROPIC_API_KEY --env factory; gh secret set FACTORY_APP_PRIVATE_KEY --env factory < key.pem; gh variable set FACTORY_APP_ID --env factory");
 }
 
-function main(args: string[]): void {
+function main(argv: string[]): void {
+  const markdown = argv.includes("--markdown");
+  const args = argv.filter((arg) => arg !== "--markdown");
   const [command, repo, issue] = args;
+  if (command === "status" && repo) {
+    statusCommand(repo, markdown);
+    return;
+  }
   if (command === "setup" && repo) {
     setup(repo);
     return;
@@ -251,7 +259,7 @@ function main(args: string[]): void {
     return;
   }
   console.error(
-    "usage: queue setup <owner/repo> | route <owner/repo> <label> | claim <owner/repo> <issue> <label> | report <owner/repo> <issue> <factory> <trigger> <exit-code> <output-file> <run-url> | set <owner/repo> <issue> <label> [comment.md] | done <owner/repo> <issue>",
+    "usage: queue setup <owner/repo> | route <owner/repo> <label> | claim <owner/repo> <issue> <label> | report <owner/repo> <issue> <factory> <trigger> <exit-code> <output-file> <run-url> | set <owner/repo> <issue> <label> [comment.md] | done <owner/repo> <issue> | status <owner/repo> [--markdown]",
   );
   process.exit(2);
 }
