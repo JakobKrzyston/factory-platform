@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { END } from "../factory/factory";
+import { report } from "./queue";
 import { render, status, type StatusIssue } from "./status";
 
 const now = new Date("2026-01-10T12:00:00Z");
@@ -69,4 +70,16 @@ test("markdown has a heading per non-empty section and a link per issue", () => 
   assert.match(text, /\[pull request\]\(https:\/\/github.com\/o\/r\/pull\/9\)/);
   assert.match(text, /no open pull request/);
   assert.doesNotMatch(text, /## Stuck/);
+});
+
+test("a question comment from report() shows the question, not its opening sentence", () => {
+  const trigger = { agent: "implement", label: "factory:implement" } as Parameters<typeof report>[1];
+  const { comment } = report({} as Parameters<typeof report>[0], trigger, 3, "Should X use Y?\nmore\n", "https://run");
+  const text = render(status([issue(1, "factory:needs-human", 5, { lastAppComment: comment })], now), false, now);
+  assert.equal(text, "Needs you\n  #1 Title 1: for 5m; Should X use Y?");
+});
+
+test("markdown escapes brackets in a title", () => {
+  const text = render(status([issue(1, END, 5, { title: "Fix [queue] parsing" })], now), true, now);
+  assert.match(text, /- \[#1 Fix \\\[queue\\\] parsing\]\(/);
 });

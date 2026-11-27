@@ -29,6 +29,7 @@ export interface StatusIssue {
   pr: string | null;
 }
 
+/** The three lists the digest prints, each oldest label first. */
 export interface StatusResult {
   needsYou: StatusIssue[];
   waitingForMerge: StatusIssue[];
@@ -61,8 +62,16 @@ function age(since: Date, now: Date): string {
   return `${minutes}m`;
 }
 
-function firstLine(text: string | null): string {
-  return (text ?? "").split("\n").map((line) => line.trim()).find((line) => line !== "") ?? "";
+/** The line of the App's comment that says what it needs: the first quoted line, which is the agent's question
+ *  in a `report()` question comment, otherwise the first non-empty line. */
+function summary(text: string | null): string {
+  const lines = (text ?? "").split("\n").map((line) => line.trim());
+  const quoted = lines.find((line) => line.startsWith("> ") && line.length > 2);
+  return quoted ? quoted.slice(2).trim() : (lines.find((line) => line !== "") ?? "");
+}
+
+function escapeLinkText(text: string): string {
+  return text.replace(/[\\[\]]/g, (c) => `\\${c}`);
 }
 
 /** Words the result as text.
@@ -77,7 +86,7 @@ export function render(result: StatusResult, markdown: boolean, now: Date = new 
     {
       title: "Needs you",
       issues: result.needsYou,
-      detail: (i) => [`for ${age(i.labelledAt, now)}`, ...(firstLine(i.lastAppComment) ? [firstLine(i.lastAppComment)] : [])],
+      detail: (i) => [`for ${age(i.labelledAt, now)}`, ...(summary(i.lastAppComment) ? [summary(i.lastAppComment)] : [])],
     },
     {
       title: "Waiting for merge",
@@ -92,7 +101,7 @@ export function render(result: StatusResult, markdown: boolean, now: Date = new 
     .map((s) => {
       const lines = s.issues.map((i) =>
         markdown
-          ? `- [#${i.number} ${i.title}](${i.url}): ${s.detail(i).join("; ")}`
+          ? `- [#${i.number} ${escapeLinkText(i.title)}](${i.url}): ${s.detail(i).join("; ")}`
           : `  #${i.number} ${i.title}: ${s.detail(i).join("; ")}`,
       );
       return markdown ? [`## ${s.title}`, "", ...lines].join("\n") : [s.title, ...lines].join("\n");
@@ -109,14 +118,15 @@ function getAll(path: string): Json[] {
   return pages.flat();
 }
 
-/** Reads the open issues in the three states from GitHub, with GET requests only. */
+/** Reads the open issues in the three states from GitHub, with GET requests only. An issue left with two factory
+ *  labels by a half-finished claim is listed once, under the first of needs-human, in-review, in-progress. */
 function gather(repo: string): StatusIssue[] {
   const bot = process.env.FACTORY_BOT;
-  const prs: Json[] = JSON.parse(gh(["api", `repos/${repo}/pulls?state=open&per_page=100`]));
+  const prs = getAll(`repos/${repo}/pulls?state=open&per_page=100`);
   const out: StatusIssue[] = [];
   for (const label of [NEEDS_HUMAN, IN_REVIEW, IN_PROGRESS]) {
     const found = getAll(`repos/${repo}/issues?state=open&labels=${encodeURIComponent(label)}&per_page=100`);
-    for (const issue of found.filter((i) => !("pull_request" in i))) {
+    for (const issue of found.filter((i) => !("pull_request" in i) && !out.some((o) => o.number === i.number))) {
       const events = getAll(`repos/${repo}/issues/${issue.number}/events?per_page=100`)
         .filter((e) => e.event === "labeled" && e.label?.name === label)
         .map((e) => e.created_at as string)
@@ -131,7 +141,12 @@ function gather(repo: string): StatusIssue[] {
       }
       const prefix = `factory/issue-${issue.number}-`;
       const pr = prs
-        .filter((p) => p.head?.repo?.full_name === repo && String(p.head.ref).startsWith(prefix))
+        // GitHub accepts any letter case in the repo path, so the argument may not match full_name exactly.
+        .filter(
+          (p) =>
+            String(p.head?.repo?.full_name ?? "").toLowerCase() === repo.toLowerCase() &&
+            String(p.head.ref).startsWith(prefix),
+        )
         .sort((a, b) => a.created_at.localeCompare(b.created_at))
         .at(-1);
       out.push({
@@ -148,7 +163,12 @@ function gather(repo: string): StatusIssue[] {
   return out;
 }
 
-/** Prints what is waiting on a person in `repo`. */
+/** Prints what is waiting on a person in `repo`.
+ *
+ *  Args:
+ *    repo: the repository as `owner/repo`.
+ *    markdown: print Markdown instead of plain text.
+ *  Raises: whatever `gh` throws when GitHub cannot be read (not signed in, unknown repo, rate limit). */
 export function statusCommand(repo: string, markdown: boolean): void {
   const now = new Date();
   console.log(render(status(gather(repo), now), markdown, now));
