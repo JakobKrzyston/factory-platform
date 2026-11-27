@@ -9,6 +9,7 @@
  *  pnpm queue report <owner/repo> <issue> <factory> <trigger> <exit-code> <output-file> <run-url>
  *  pnpm queue set <owner/repo> <issue> <label> [comment.md]
  *  pnpm queue done <owner/repo> <issue>                  moves a closed issue to done if the factory's PR merged
+ *  pnpm queue dwell <owner/repo> <issue|--all>           records how long the issue waited in each state (dwell.ts)
  *
  *  Needs `gh` signed in: as a repo admin for setup, as the factory App otherwise. */
 import { execFileSync } from "node:child_process";
@@ -18,6 +19,7 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 
 import { END, type Factory, readFactories, route, type Trigger } from "../factory/factory";
+import { dwell } from "./dwell";
 
 /** The states every factory shares. The labels that start agents are each factory's triggers. */
 export const STATES = {
@@ -59,7 +61,8 @@ export function claimRefusal(issue: { state: string; labels: string[] }, from: s
  *  Returns: what it printed.
  *  Raises: if `gh` exits non-zero. */
 export function gh(args: string[], input?: string): string {
-  return execFileSync("gh", args, { input, encoding: "utf8" });
+  // Paginated reads, such as `queue dwell --all`, outgrow execFileSync's default 1 MB.
+  return execFileSync("gh", args, { input, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
 }
 
 /** Decides whether an issue may move to a state. A closed issue moves only to `done`, so a run that ends after
@@ -199,7 +202,7 @@ function setup(repo: string): void {
   console.log("\nNow set its secrets: gh secret set ANTHROPIC_API_KEY --env factory; gh secret set FACTORY_APP_PRIVATE_KEY --env factory < key.pem; gh variable set FACTORY_APP_ID --env factory");
 }
 
-function main(args: string[]): void {
+async function main(args: string[]): Promise<void> {
   const [command, repo, issue] = args;
   if (command === "setup" && repo) {
     setup(repo);
@@ -250,10 +253,14 @@ function main(args: string[]): void {
     else console.error(`not done: no merged factory pull request for #${issue}`);
     return;
   }
+  if (command === "dwell" && repo && /^(\d+|--all)$/.test(issue ?? "")) {
+    await dwell(repo, issue);
+    return;
+  }
   console.error(
-    "usage: queue setup <owner/repo> | route <owner/repo> <label> | claim <owner/repo> <issue> <label> | report <owner/repo> <issue> <factory> <trigger> <exit-code> <output-file> <run-url> | set <owner/repo> <issue> <label> [comment.md] | done <owner/repo> <issue>",
+    "usage: queue setup <owner/repo> | route <owner/repo> <label> | claim <owner/repo> <issue> <label> | report <owner/repo> <issue> <factory> <trigger> <exit-code> <output-file> <run-url> | set <owner/repo> <issue> <label> [comment.md] | done <owner/repo> <issue> | dwell <owner/repo> <issue|--all>",
   );
   process.exit(2);
 }
 
-if (import.meta.url === pathToFileURL(process.argv[1]).href) main(process.argv.slice(2));
+if (import.meta.url === pathToFileURL(process.argv[1]).href) await main(process.argv.slice(2));

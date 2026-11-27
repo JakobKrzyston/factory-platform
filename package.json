@@ -19,7 +19,7 @@
     "dashboard": "tsx --env-file-if-exists=.env.local platform/dashboard/dashboard.ts",
     "merge-gate": "tsx scripts/apply-rulesets.ts",
     "check-merge-gate": "tsx scripts/check-merge-gate.ts",
-    "queue": "tsx platform/queue/queue.ts",
+    "queue": "tsx --env-file-if-exists=.env.local platform/queue/queue.ts",
     "standards": "tsx platform/standards/standards.ts",
     "bench": "tsx --env-file-if-exists=.env.local platform/bench/bench.ts",
     "check-webhook": "tsx --env-file-if-exists=.env.local platform/health/webhook.ts",

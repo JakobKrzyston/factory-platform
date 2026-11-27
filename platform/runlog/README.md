@@ -1,6 +1,6 @@
 # Run log
 
-One row per agent run, in a table called `runs`, and one row per score a scorer gave a benchmark run, in `scores` (TL-16). The schema is [`migrations/`](migrations/), and the same files run on SQLite (locally, `.runlog/runlog.db`) and on Neon Postgres (in the cloud), so the two cannot drift.
+One row per agent run, in a table called `runs`, one row per score a scorer gave a benchmark run, in `scores` (TL-16), and one row per stretch an issue spent in a factory state, in `transitions` (#86). The schema is [`migrations/`](migrations/), and the same files run on SQLite (locally, `.runlog/runlog.db`) and on Neon Postgres (in the cloud), so the two cannot drift.
 
 ```sh
 pnpm runlog:migrate   # SQLite in .runlog/, or Postgres when DATABASE_URL is set (.env.local is read if present)
@@ -83,6 +83,21 @@ The row says what ran (`factory` and `role` at `factory_sha`, on `model`), on wh
 | `reason` | text | Why, on one line, such as `the case's checks failed (exit 1): ...`. Never empty. |
 
 The scores do not record which version of the scorers gave them: `pnpm bench` uses the checkout it runs in, whose commit is not stored. Two benchmark runs compared in one checkout are graded alike.
+
+## Transitions
+
+The runs time the agents; `transitions` times the waits between them, such as an issue sitting in `factory:needs-human` until a person answers, or in `factory:in-review` until a person merges. `pnpm queue dwell` writes it from the issue's label events (`platform/queue/README.md`), in [`migrations/003_transitions.sql`](migrations/003_transitions.sql). The factory workflow's `done` job runs it for each issue that closes, so a row is written once the issue's stretches have all ended. Running it again for an issue rewrites the same rows.
+
+| Column | Type | Meaning |
+| --- | --- | --- |
+| `repo` | text | `owner/name` of the issue's repository. |
+| `issue` | integer | The issue number. |
+| `label` | text | The `factory:*` label the issue carried, whole, such as `factory:needs-human`. Trigger labels (`factory:ready`, `factory:spec`, ...) and the shared states alike. |
+| `entered_at` | timestamptz | When the label was added: the `labeled` event's time, in UTC. An issue that carried a label twice has two rows for it, so the key is `repo`, `issue`, `label` and `entered_at`. |
+| `left_at` | timestamptz | When the label was removed. On a closed issue no stretch ends after the close: a label still on at the close, or removed after it (the `done` job removes `factory:in-review` moments later), ends at the close, so the job's own delay is not counted as review time. `factory:done`, which the `done` job adds after the close, ends where it began. Null for a label still on an open issue. |
+| `seconds` | integer | Elapsed seconds from `entered_at` to `left_at`, null while `left_at` is. Stored for the same reason as `wall_seconds`: the dashboard does no date arithmetic. |
+
+The table has no `factory` column: when two factories serve one repository, a stretch cannot yet say whose it was.
 
 ## Dialect differences
 

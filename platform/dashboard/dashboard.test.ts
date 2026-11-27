@@ -6,7 +6,8 @@ import { join } from "node:path";
 import { test } from "node:test";
 
 import { type RunLog, openRunLog } from "../runlog/runlog";
-import { type ScoreRow, readRuns, renderDashboard, weekOf, weeklyMetrics } from "./dashboard";
+import { recordDwell } from "../queue/dwell";
+import { type ScoreRow, readRuns, readWaits, renderDashboard, weekOf, weeklyMetrics } from "./dashboard";
 
 type Row = {
   id: string;
@@ -149,7 +150,7 @@ test("the page has a section per factory, keeps each role's colour, and escapes 
     review_findings: null,
     rework: null,
   }));
-  const html = renderDashboard(weeklyMetrics(runs), new Date("2026-11-11T12:00:00Z"), []);
+  const html = renderDashboard(weeklyMetrics(runs), new Date("2026-11-11T12:00:00Z"), [], []);
   assert.match(html, /<h2>code factory<\/h2>/);
   assert.match(html, /<h2>&lt;docs&gt; factory<\/h2>/);
   assert.doesNotMatch(html, /<docs>/);
@@ -166,7 +167,7 @@ test("a read-only open neither migrates nor creates a missing SQLite file", asyn
 });
 
 test("an empty run log renders a page that says so", () => {
-  assert.match(renderDashboard(weeklyMetrics([]), new Date(), []), /No finished production runs in the run log yet/);
+  assert.match(renderDashboard(weeklyMetrics([]), new Date(), [], []), /No finished production runs in the run log yet/);
 });
 
 test("benchmark scores show per factory version, newest first, with each scorer's mean and every reason", () => {
@@ -185,11 +186,73 @@ test("benchmark scores show per factory version, newest first, with each scorer'
     score("a", "5477cf4c0ffee", "10", "tests", 1, "the case's checks passed on the patch in 9s"),
     score("b", "5477cf4c0ffee", "10", "tests", 0, "the case's checks failed (exit 1): <no output>"),
     score("c", "e2fdf32c0ffee-dirty-0123456789ab", "12", "cost", 0.05, "$0.05 for implement in 25s"),
-  ]);
+  ], []);
   assert.match(html, /<h2>Benchmark scores<\/h2>/);
   assert.match(html, /<th>Version<\/th><th>First run<\/th><th>Runs<\/th><th>cost mean \(n\)<\/th><th>tests mean \(n\)<\/th>/);
   assert.ok(html.indexOf("<code>e2fdf32-dirty</code></td>") < html.indexOf("<code>5477cf4</code></td>"), "newest version first");
   assert.match(html, /<code>5477cf4<\/code><\/td><td>2026-11-10<\/td><td>2<\/td><td>–<\/td><td>0.5 \(2\)<\/td>/);
   assert.match(html, /<td>#60<\/td><td>implement<\/td><td>tests<\/td><td>0<\/td><td>the case's checks failed \(exit 1\): &lt;no output&gt;<\/td>/);
-  assert.doesNotMatch(renderDashboard(weeklyMetrics([]), new Date(), []), /Benchmark scores/);
+  assert.doesNotMatch(renderDashboard(weeklyMetrics([]), new Date(), [], []), /Benchmark scores/);
+});
+
+test("where issues wait: per week and label, the median hours of the ended stretches and how many", async () => {
+  const db = await logWith([]);
+  const stretch = (label: string, entered_at: string, hours: number | null) => ({
+    label,
+    entered_at,
+    left_at: hours === null ? null : new Date(Date.parse(entered_at) + hours * 3600_000).toISOString(),
+    seconds: hours === null ? null : hours * 3600,
+  });
+  await recordDwell(db, "o/r", 1, [
+    stretch("factory:needs-human", "2026-11-10T09:00:00.000Z", 2),
+    stretch("factory:needs-human", "2026-11-11T09:00:00.000Z", 5),
+    stretch("factory:needs-human", "2026-11-12T09:00:00.000Z", 30),
+    stretch("factory:in-review", "2026-11-12T10:00:00.000Z", 4),
+    // Next week, and one stretch that has not ended, which has no length to count.
+    stretch("factory:in-review", "2026-11-16T10:00:00.000Z", 1.5),
+    stretch("factory:<x>", "2026-11-16T11:00:00.000Z", null),
+  ]);
+  const waits = await readWaits(db);
+  await db.close();
+  assert.equal(waits.length, 5);
+
+  const html = renderDashboard(weeklyMetrics([]), new Date(), [], waits);
+  assert.match(html, /<h2>Where issues wait<\/h2>/);
+  assert.match(html, /<th>Week<\/th><th>needs-human<\/th><th>in-review<\/th><\/tr>/);
+  assert.match(html, /<tr><td>2026-11-09<\/td><td>5\.00 h \(3\)<\/td><td>4\.00 h \(1\)<\/td><\/tr>/);
+  assert.match(html, /<tr><td>2026-11-16<\/td><td>–<\/td><td>1\.50 h \(1\)<\/td><\/tr>/);
+  assert.doesNotMatch(html, /&lt;x&gt;|<x>/);
+});
+
+test("where issues wait renders with no stretches, after the production charts and before the scores", () => {
+  const empty = renderDashboard(weeklyMetrics([]), new Date(), [], []);
+  assert.match(empty, /<h2>Where issues wait<\/h2>\n<p class="sub">[^\n]*<\/p>\n<p class="empty">No waiting time in the run log yet/);
+
+  const started_at = new Date("2026-11-10T00:00:00Z");
+  const run = {
+    factory: "code",
+    role: "implement",
+    repo: "o/r",
+    pr: 1,
+    started_at,
+    wall_seconds: 60,
+    cost_usd: 1,
+    checks_passed: true,
+    review_findings: null,
+    rework: null,
+  };
+  const score: ScoreRow = {
+    run_id: "a",
+    factory: "code",
+    factory_sha: "5477cf4",
+    issue: 60,
+    role: "implement",
+    started_at,
+    scorer: "tests",
+    score: 1,
+    reason: "passed",
+  };
+  const html = renderDashboard(weeklyMetrics([run]), new Date(), [score], []);
+  const order = ["<h2>code factory</h2>", "<h2>Where issues wait</h2>", "<h2>Benchmark scores</h2>"].map((h) => html.indexOf(h));
+  assert.ok(order[0] >= 0 && order[0] < order[1] && order[1] < order[2], `sections out of order: ${order}`);
 });
