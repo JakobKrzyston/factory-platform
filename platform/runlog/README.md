@@ -94,7 +94,7 @@ The runs time the agents; `transitions` times the waits between them, such as an
 | `issue` | integer | The issue number. |
 | `label` | text | The `factory:*` label the issue carried, whole, such as `factory:needs-human`. Trigger labels (`factory:ready`, `factory:spec`, ...) and the shared states alike. |
 | `entered_at` | timestamptz | When the label was added: the `labeled` event's time, in UTC. An issue that carried a label twice has two rows for it, so the key is `repo`, `issue`, `label` and `entered_at`. |
-| `left_at` | timestamptz | When the label was removed. A label still on the issue when it closed ends at the close; `factory:done`, which the `done` job adds after the close, ends where it began. Null for a label still on an open issue. |
+| `left_at` | timestamptz | When the label was removed. On a closed issue no stretch ends after the close: a label still on at the close, or removed after it (the `done` job removes `factory:in-review` moments later), ends at the close, so the job's own delay is not counted as review time. `factory:done`, which the `done` job adds after the close, ends where it began. Null for a label still on an open issue. |
 | `seconds` | integer | Elapsed seconds from `entered_at` to `left_at`, null while `left_at` is. Stored for the same reason as `wall_seconds`: the dashboard does no date arithmetic. |
 
 The table has no `factory` column: when two factories serve one repository, a stretch cannot yet say whose it was.

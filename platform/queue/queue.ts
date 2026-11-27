@@ -61,7 +61,8 @@ export function claimRefusal(issue: { state: string; labels: string[] }, from: s
  *  Returns: what it printed.
  *  Raises: if `gh` exits non-zero. */
 export function gh(args: string[], input?: string): string {
-  return execFileSync("gh", args, { input, encoding: "utf8" });
+  // Paginated reads, such as `queue dwell --all`, outgrow execFileSync's default 1 MB.
+  return execFileSync("gh", args, { input, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
 }
 
 /** Decides whether an issue may move to a state. A closed issue moves only to `done`, so a run that ends after

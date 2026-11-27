@@ -52,9 +52,9 @@ The factory App (TL-10) must be installed on the repository with read-write Cont
 
 ```sh
 pnpm queue dwell <owner/repo> <issue>   # one issue's stretches in each factory:* label, into the run log's transitions table
-pnpm queue dwell <owner/repo> --all     # the same for every closed issue labelled factory:done, for a backfill
+pnpm queue dwell <owner/repo> --all     # the same for every issue closed as completed with a factory:* label, for a backfill
 ```
 
-The workflow's `done` job runs the first form when an issue closes. It reads the issue's `labeled` and `unlabeled` events, ignores labels that do not start with `factory:`, and writes one row per stretch the issue carried each label (`platform/runlog/README.md`). Running it twice writes the same rows. It needs `gh` signed in, and `DATABASE_URL` for the cloud run log.
+The workflow's `done` job runs the first form when an issue closes, and `--all` picks the same issues that job runs on. It reads the issue's `labeled` and `unlabeled` events, ignores labels that do not start with `factory:`, and writes one row per stretch the issue carried each label (`platform/runlog/README.md`). Running it twice writes the same rows. GitHub's events API is eventually consistent, and the `done` job reads it seconds after moving the issue to `done`, so the command rereads the events for up to 30 seconds until they end with the labels the issue carries now. If they still don't match, it fails rather than writing a wrong row, and rerunning the job fixes it. It needs `gh` signed in, and `DATABASE_URL` for the cloud run log; `pnpm queue` reads `.env.local` if it is there.
 
 `pnpm queue route <owner/repo> <label>`, `pnpm queue claim <owner/repo> <issue> <label>`, `pnpm queue report <owner/repo> <issue> <factory> <trigger> <exit-code> <output-file> <run-url>`, `pnpm queue set <owner/repo> <issue> <label> [comment.md]`, `pnpm queue done <owner/repo> <issue>` and `pnpm queue dwell <owner/repo> <issue>` are what the workflow calls. Labels are given whole, e.g. `factory:needs-human`. Run by hand with `gh` signed in, they move an issue the same way.
